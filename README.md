@@ -146,7 +146,7 @@ Hooks read it and block with a clear reason on stderr:
 | Edits to test folders (`tests`, at any depth) | Blocked until `spec_approved` is true. This lets the plan phase write failing tests. |
 | `CLAUDE.md` files inside those folders | Treated like tests: allowed once the spec is approved. |
 | Edits to `.spec/state.json` | Always blocked. Approvals go through `/specforge:approve`. Shell commands that write to it are blocked too, on a best-effort basis. |
-| `git commit` | Once both approvals are in, blocked while the test suite fails. Commits whose message starts with `test:` are let through, so failing tests (RED) can be committed. |
+| `git commit` | Once both approvals are in, blocked while the test suite fails. The suite runs on **exactly what the commit would contain** (staged files, plus any `git add` in the same command, plus tracked changes for `commit -a`), in a temporary copy, so unstaged or untracked files on disk cannot make a commit pass. Commits whose message starts with `test:` are let through, so failing tests (RED) can be committed. |
 | Spec changes | Editing `.spec/spec.md` after approval bumps `spec_version` and resets both approvals. |
 
 Everything else is allowed, including everything under `.spec/`. A project with no `.spec/` folder is left alone. If the state or config file is unreadable, or a hook script fails, the hook blocks rather than guessing.
@@ -159,13 +159,17 @@ Optional `.spec/config.json`:
 {
   "code_dirs": ["src", "app", "lib", "backend"],
   "test_dirs": ["tests", "spec_tests"],
-  "test_command": "make test"
+  "test_command": "make test",
+  "commit_gate_scope": "commit",
+  "test_env_links": [".venv", "node_modules"]
 }
 ```
 
 - `code_dirs`: folder names (not paths) that count as source code. Default `src`, `app`, `lib`.
 - `test_dirs`: folder names that count as tests. Default `tests`. A path inside both, such as `app/tests/x.py`, counts as a test.
 - `test_command`: how to run the suite. If unset, specforge looks for `pytest`, then `npm test`, then `flutter test`. If it finds none, or the runner is not installed, commits are blocked with a message telling you to set it.
+- `commit_gate_scope`: `commit` (default) runs the commit gate on a temporary copy of exactly what is being committed. `worktree` runs it in the project folder instead, which is faster for slow suites but lets uncommitted files on disk make a commit pass.
+- `test_env_links`: untracked paths the tests need, such as a virtualenv or installed packages. Each one that exists is linked into the temporary copy. Default `.venv`, `venv`, `node_modules`. Paths must stay inside the project.
 
 ## Example session
 
@@ -219,6 +223,7 @@ Claude: review.md written: AC-1..AC-6 all pass, no gaps.
 
 - **TDD order is mostly instructions.** `/specforge:build` and the `test-writer` agent tell Claude to go red, green, refactor, and hooks block commits while tests fail. Nothing stops Claude from writing code and its test in one go. `/specforge:review` checks the git history and reports any task whose `test:` commit does not come before its `feat:` commit, but it reports, it does not block.
 - **A `test:` commit can contain anything.** The prefix only skips the test run. The review step is where misuse shows up.
+- **The commit gate replays `git add` from the project folder.** A `git add` in the same command as the commit is replayed into a temporary index to see what would be committed. A `cd` before it is not followed, and `git commit <paths>` is not modelled, so stage first and commit separately when it matters. The real index is never changed by the gate.
 - **The Bash guard for `state.json` is best effort.** Hooks cannot reliably parse every shell command. Someone determined could write to the file by a route the pattern does not recognize, or run `state.py approve` through Bash. `/specforge:approve` cannot be invoked by the model, but the underlying script is a normal Python file.
 - **The commit gate starts after both approvals.** Before that, no source code can be written, and committing planning documents with failing tests would deadlock the plan phase.
 - **Hooks need Claude Code 2.1.295 or later** for `onFailure: block`. On older versions a crashing hook script does not block.

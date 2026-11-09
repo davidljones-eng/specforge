@@ -433,3 +433,36 @@ def test_failed_replay_of_git_add_blocks_with_reason(gitproj, monkeypatch, capsy
     event = git_commit_event(gitproj, "git add no-such-file && git commit -m 'feat: x'")
     assert run_gate(monkeypatch, gitproj, event) == 2
     assert "git add" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("git commit -am 'feat: x'", True),
+        ("git commit -a -m 'feat: x'", True),
+        ("git commit --all -m x", True),
+        ("git commit -m 'feat: x'", False),
+        ("git commit -m '-a looks like a flag'", False),
+        ("git commit -m x -a", True),
+        ("git commit --amend --no-edit", False),
+        ("git commit -m 'feat' && git add -A", False),
+        ("git status", False),
+    ],
+)
+def test_commit_all_flag_detection(command, expected):
+    assert test_gate.commit_includes_tracked_changes(command) is expected
+
+
+def test_project_in_a_subfolder_of_the_repo_runs_tests_in_that_subfolder(tmp_path, monkeypatch):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "config", "user.name", "t")
+    _git(tmp_path, "config", "user.email", "t@example.invalid")
+    proj = tmp_path / "apps" / "web"
+    proj.mkdir(parents=True)
+    (proj / "page.html").write_text("x\n")
+    _git(tmp_path, "add", "apps/web/page.html")
+    state.create(proj)
+    state.approve(proj, "spec")
+    state.approve(proj, "plan")
+    set_config(proj, test_command="test -f page.html && test ! -e apps")
+    assert run_gate(monkeypatch, proj, git_commit_event(proj)) == 0

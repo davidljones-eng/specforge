@@ -4,13 +4,22 @@
 Commits whose message starts with `test:` are let through so that failing tests
 (the RED step of TDD) can be committed. The gate only applies once both the spec
 and the plan are approved. Exit 0 allows, exit 2 blocks with a reason on stderr.
+
+By default (commit_gate_scope "commit") the suite runs on exactly what would be
+committed: the staged files, plus any `git add ...` in the same command replayed
+into a temporary index, plus tracked changes for `commit -a`. That copy lives in
+a temporary directory that is always removed. Untracked files on disk are not
+included, so they cannot make a commit pass. "worktree" keeps the original
+behaviour of running the suite in the project directory.
 """
 import json
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import config
@@ -27,6 +36,13 @@ _MESSAGE = re.compile(
     re.DOTALL,
 )
 _TEST_PREFIX = re.compile(r"^test(\([^)]*\))?!?:")
+_SEGMENT_SPLIT = re.compile(r"&&|\|\||;|\n")
+_GIT_ADD = re.compile(r"^git(?:\s+-[cC]\s+\S+)*\s+add(?![\w-])")
+_COMMIT_OPTS_WITH_VALUE = set("mFcCt")  # short options whose value is the next token
+
+
+class CommitTreeError(Exception):
+    """Could not work out what the commit would contain."""
 
 
 def is_commit(command: str) -> bool:
@@ -101,6 +117,110 @@ def resolve_command(project, cfg, which=shutil.which):
     return command, None
 
 
+def _git(cwd, *args, env=None):
+    return subprocess.run(
+        ["git", *args], cwd=cwd, env=env, capture_output=True, text=True, errors="replace"
+    )
+
+
+def is_git_repo(project) -> bool:
+    return _git(project, "rev-parse", "--git-dir").returncode == 0
+
+
+def _segments_before_first_commit(command: str):
+    match = _COMMIT.search(command)
+    before = command[: match.start()] if match else command
+    return [seg.strip() for seg in _SEGMENT_SPLIT.split(before) if seg.strip()]
+
+
+def commit_includes_tracked_changes(command: str) -> bool:
+    """True if the first `git commit` in the command uses -a / --all."""
+    match = _COMMIT.search(command)
+    if not match:
+        return False
+    rest = _SEGMENT_SPLIT.split(command[match.end():])[0]
+    try:
+        tokens = shlex.split(rest)
+    except ValueError:
+        tokens = rest.split()
+    skip = False
+    for tok in tokens:
+        if skip:
+            skip = False
+            continue
+        if tok == "--all":
+            return True
+        if tok.startswith("--"):
+            continue
+        if tok.startswith("-") and len(tok) > 1 and tok[1:].isalpha():
+            letters = tok[1:]
+            for i, letter in enumerate(letters):
+                if letter == "a":
+                    return True
+                if letter in _COMMIT_OPTS_WITH_VALUE:
+                    skip = i == len(letters) - 1  # value is the next token
+                    break
+    return False
+
+
+def build_commit_tree(project: Path, command: str, links):
+    """Export what `command` would commit into a temporary directory.
+
+    Returns (temp_root, run_dir). The caller must remove temp_root.
+    """
+    temp_root = Path(tempfile.mkdtemp(prefix="specforge-gate-"))
+    try:
+        top = _git(project, "rev-parse", "--show-toplevel")
+        prefix = _git(project, "rev-parse", "--show-prefix")
+        index_path = _git(project, "rev-parse", "--git-path", "index")
+        if top.returncode or prefix.returncode or index_path.returncode:
+            raise CommitTreeError("could not read the git repository to see what would be committed")
+        repo_top = Path(top.stdout.strip())
+        real_index = Path(index_path.stdout.strip())
+        if not real_index.is_absolute():
+            real_index = (project / real_index).resolve()
+
+        temp_index = temp_root / "index"
+        if real_index.is_file():
+            shutil.copy2(real_index, temp_index)
+        env = dict(os.environ, GIT_INDEX_FILE=str(temp_index))
+
+        for segment in _segments_before_first_commit(command):
+            if not _GIT_ADD.match(segment):
+                continue
+            result = subprocess.run(
+                segment, shell=True, cwd=project, env=env,
+                capture_output=True, text=True, errors="replace",
+            )
+            if result.returncode:
+                raise CommitTreeError(
+                    f"could not replay `{segment}` to see what would be committed:\n"
+                    f"{_tail(result.stdout + result.stderr)}"
+                )
+        if commit_includes_tracked_changes(command):
+            result = _git(repo_top, "add", "-u", env=env)
+            if result.returncode:
+                raise CommitTreeError(f"could not apply `commit -a`: {_tail(result.stderr)}")
+
+        tree = temp_root / "tree"
+        tree.mkdir()
+        result = _git(repo_top, "checkout-index", "-a", f"--prefix={tree}/", env=env)
+        if result.returncode:
+            raise CommitTreeError(f"could not export the staged files: {_tail(result.stderr)}")
+
+        run_dir = tree / prefix.stdout.strip()
+        run_dir.mkdir(parents=True, exist_ok=True)
+        for link in links:
+            source, target = project / link, run_dir / link
+            if source.exists() and not target.exists() and not target.is_symlink():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.symlink_to(source.resolve(), target_is_directory=source.is_dir())
+        return temp_root, run_dir
+    except BaseException:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        raise
+
+
 def _tail(output: str) -> str:
     lines = output.strip().splitlines()[-_TAIL_LINES:]
     return "\n".join(lines)[-_TAIL_CHARS:]
@@ -133,13 +253,26 @@ def evaluate(event, project_dir):
     if problem:
         return f"specforge: commit blocked, {problem}"
 
+    temp_root, run_dir, scope_note = None, project, ""
+    if cfg["commit_gate_scope"] == "commit" and is_git_repo(project):
+        try:
+            temp_root, run_dir = build_commit_tree(project, command, cfg["test_env_links"])
+        except CommitTreeError as e:
+            return f"specforge: commit blocked. {e}"
+        scope_note = (
+            "\nThe tests ran on exactly what this commit would contain; unstaged and "
+            "untracked files were not included. Stage everything the commit needs."
+        )
     try:
         result = subprocess.run(
-            test_command, shell=True, cwd=project, capture_output=True,
+            test_command, shell=True, cwd=run_dir, capture_output=True,
             text=True, errors="replace", timeout=TEST_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return f"specforge: commit blocked. Tests timed out after {TEST_TIMEOUT}s: {test_command}"
+    finally:
+        if temp_root is not None:
+            shutil.rmtree(temp_root, ignore_errors=True)
     if result.returncode == 0:
         return None
     if result.returncode == 127:
@@ -148,6 +281,7 @@ def evaluate(event, project_dir):
         f"specforge: commit blocked. Tests failed (exit {result.returncode}): {test_command}\n"
         f"{_tail(result.stdout + result.stderr)}\n"
         "Fix the tests, or commit failing tests with a 'test:' message prefix."
+        f"{scope_note}"
     )
 
 
