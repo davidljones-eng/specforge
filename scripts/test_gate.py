@@ -45,6 +45,7 @@ _TASK_LINE = re.compile(r"^\s*[-*]\s*\[( |x|X)\]\s*T\d+\b(?P<rest>.*)$")
 _AC_ID = re.compile(r"\bAC-\d+\b")
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__"}
 _MAX_SCAN_BYTES = 2_000_000
+_DOC_SUFFIXES = {".md", ".markdown", ".rst", ".txt"}
 
 
 class CommitTreeError(Exception):
@@ -172,7 +173,7 @@ def commit_includes_tracked_changes(command: str) -> bool:
 def build_commit_tree(project: Path, command: str, links):
     """Export what `command` would commit into a temporary directory.
 
-    Returns (temp_root, run_dir). The caller must remove temp_root.
+    Returns (temp_root, run_dir, changed_paths). The caller must remove temp_root.
     """
     temp_root = Path(tempfile.mkdtemp(prefix="specforge-gate-"))
     try:
@@ -214,6 +215,15 @@ def build_commit_tree(project: Path, command: str, links):
         if result.returncode:
             raise CommitTreeError(f"could not export the staged files: {_tail(result.stderr)}")
 
+        has_head = _git(repo_top, "rev-parse", "--verify", "-q", "HEAD").returncode == 0
+        listing = (
+            _git(repo_top, "diff-index", "--cached", "--name-only", "HEAD", env=env)
+            if has_head else _git(repo_top, "ls-files", env=env)
+        )
+        if listing.returncode:
+            raise CommitTreeError(f"could not list the changed files: {_tail(listing.stderr)}")
+        changed = [line for line in listing.stdout.splitlines() if line.strip()]
+
         run_dir = tree / prefix.stdout.strip()
         run_dir.mkdir(parents=True, exist_ok=True)
         for link in links:
@@ -221,17 +231,17 @@ def build_commit_tree(project: Path, command: str, links):
             if source.exists() and not target.exists() and not target.is_symlink():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.symlink_to(source.resolve(), target_is_directory=source.is_dir())
-        return temp_root, run_dir
+        return temp_root, run_dir, changed
     except BaseException:
         shutil.rmtree(temp_root, ignore_errors=True)
         raise
 
 
-def acs_in_scope(project):
-    """AC-IDs of the done tasks plus the first open task in .spec/plan.md.
+def acs_in_scope(project, include_current=True):
+    """AC-IDs of the done tasks, plus the first open task's when include_current.
 
     None means "run the whole suite": there is no plan, no task list, or every
-    task is done.
+    task is done. An empty list means there is nothing to test yet.
     """
     plan = Path(project) / ".spec" / "plan.md"
     if not plan.is_file():
@@ -246,9 +256,9 @@ def acs_in_scope(project):
     first_open = next(i for i, (done, _) in enumerate(tasks) if not done)
     ids = []
     for i, (done, acs) in enumerate(tasks):
-        if done or i == first_open:
+        if done or (include_current and i == first_open):
             ids.extend(a for a in acs if a not in ids)
-    return ids or None
+    return ids
 
 
 def ac_regex(ids):
@@ -271,6 +281,8 @@ def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
             continue
         for name in files:
             path = Path(root) / name
+            if path.suffix.lower() in _DOC_SUFFIXES:
+                continue  # a guide that mentions an AC-ID is not a test for it
             try:
                 if path.stat().st_size > _MAX_SCAN_BYTES:
                     continue
@@ -278,6 +290,19 @@ def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
                     return True
             except OSError:
                 continue
+    return False
+
+
+def touches_code(paths, cfg) -> bool:
+    """True if any non-doc path is inside a code folder (and not a test folder)."""
+    for path in paths:
+        if Path(path).suffix.lower() in _DOC_SUFFIXES:
+            continue  # folder CLAUDE.md guides and other docs are not code
+        folders = Path(path).parts[:-1]
+        if any(f in cfg["code_dirs"] for f in folders) and not any(
+            f in cfg["test_dirs"] for f in folders
+        ):
+            return True
     return False
 
 
@@ -313,11 +338,13 @@ def evaluate(event, project_dir):
     if problem:
         return f"specforge: commit blocked, {problem}"
 
-    temp_root, run_dir, notes = None, project, []
+    temp_root, run_dir, notes, changed = None, project, [], None
     try:
         if cfg["commit_gate_scope"] == "commit" and is_git_repo(project):
             try:
-                temp_root, run_dir = build_commit_tree(project, command, cfg["test_env_links"])
+                temp_root, run_dir, changed = build_commit_tree(
+                    project, command, cfg["test_env_links"]
+                )
             except CommitTreeError as e:
                 return f"specforge: commit blocked. {e}"
             notes.append(
@@ -325,7 +352,13 @@ def evaluate(event, project_dir):
                 "untracked files were not included. Stage everything the commit needs."
             )
 
-        scope = acs_in_scope(project) if cfg["test_filter"] else None
+        # Code for the current task needs the current task's tests. A commit that
+        # changes no code (or whose changes are unknown: worktree scope) is held to
+        # the done tasks only, or to everything when the changes are unknown.
+        code_change = changed is None or touches_code(changed, cfg)
+        scope = acs_in_scope(project, include_current=code_change) if cfg["test_filter"] else None
+        if scope == []:
+            return None  # no code change and no task done yet: nothing to test
         if scope:
             missing = [a for a in scope if not _has_test_for(run_dir, cfg["test_dirs"], a)]
             if missing:
