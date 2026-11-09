@@ -1,4 +1,5 @@
 import io
+import re
 from pathlib import Path
 import json
 
@@ -466,3 +467,129 @@ def test_project_in_a_subfolder_of_the_repo_runs_tests_in_that_subfolder(tmp_pat
     state.approve(proj, "plan")
     set_config(proj, test_command="test -f page.html && test ! -e apps")
     assert run_gate(monkeypatch, proj, git_commit_event(proj)) == 0
+
+
+# ---------- per-task test scope: only done tasks and the current task ----------
+
+PLAN = """# Plan: x
+
+## Tasks
+- [x] T1 (M1, AC-18): state
+- [x] T2 (M1, AC-23): snapshots
+- [ ] T3 (M1, AC-24, AC-4): subscribe
+- [ ] T4 (M1, AC-1): send
+- [ ] T5 (M2, AC-19): page
+"""
+
+
+def write_plan(proj, text=PLAN):
+    (proj / ".spec" / "plan.md").write_text(text)
+
+
+def write_tests(proj, *ids):
+    (proj / "tests").mkdir(exist_ok=True)
+    (proj / "tests" / "ids.test.js").write_text("\n".join(f'test("{i}: x", () => {{}});' for i in ids))
+
+
+def test_scope_is_done_tasks_plus_the_first_open_task(tmp_path):
+    (tmp_path / ".spec").mkdir()
+    write_plan(tmp_path)
+    assert test_gate.acs_in_scope(tmp_path) == ["AC-18", "AC-23", "AC-24", "AC-4"]
+
+
+def test_scope_is_none_when_every_task_is_done(tmp_path):
+    (tmp_path / ".spec").mkdir()
+    write_plan(tmp_path, PLAN.replace("[ ]", "[x]"))
+    assert test_gate.acs_in_scope(tmp_path) is None
+
+
+def test_scope_is_none_without_a_plan_or_tasks(tmp_path):
+    (tmp_path / ".spec").mkdir()
+    assert test_gate.acs_in_scope(tmp_path) is None
+    write_plan(tmp_path, "# Plan\n\nno tasks here\n")
+    assert test_gate.acs_in_scope(tmp_path) is None
+
+
+def test_ac_regex_matches_whole_ids_only():
+    pattern = re.compile(test_gate.ac_regex(["AC-1", "AC-18"]))
+    assert pattern.search("AC-1: sends")
+    assert pattern.search("AC-18 (a): state")
+    assert not pattern.search("AC-10: other")
+    assert not pattern.search("AC-181: other")
+
+
+def test_pytest_k_expression():
+    assert test_gate.pytest_k(["AC-1", "AC-18"]) == "ac1_ or ac18_"
+
+
+def test_filter_runs_only_the_tests_in_scope(proj, monkeypatch):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-24", "AC-4", "AC-1", "AC-19")
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 1",  # the whole suite still fails: later tasks are not built
+        "test_filter": "printf '%s' {ac_regex} > got.txt; exit 0",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 0
+    got = (proj / "got.txt").read_text()
+    alternatives = set(re.search(r"\(\?:([^)]*)\)", got).group(1).split("|"))
+    assert alternatives == {"AC-18", "AC-23", "AC-24", "AC-4"}
+
+
+def test_filter_with_pytest_placeholder(proj, monkeypatch):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-24", "AC-4")
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 1",
+        "test_filter": "printf '%s' {pytest_k} > got.txt; exit 0",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 0
+    assert (proj / "got.txt").read_text() == "ac18_ or ac23_ or ac24_ or ac4_"
+
+
+def test_filter_failure_still_blocks(proj, monkeypatch, capsys):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-24", "AC-4")
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": "echo SCOPED-FAIL; exit 1 #{ac_regex}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    err = capsys.readouterr().err
+    assert "SCOPED-FAIL" in err and "AC-24" in err  # says which ACs were in scope
+
+
+def test_an_ac_in_scope_with_no_tests_blocks(proj, monkeypatch, capsys):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-4")  # nothing for AC-24
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": "exit 0 #{ac_regex}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    assert "AC-24" in capsys.readouterr().err
+
+
+def test_pytest_style_test_names_count_as_tests(proj, monkeypatch):
+    write_plan(proj)
+    (proj / "tests").mkdir()
+    (proj / "tests" / "test_x.py").write_text(
+        "def test_ac18_a(): pass\ndef test_ac23_b(): pass\ndef test_ac24_c(): pass\ndef test_ac4_d(): pass\n"
+    )
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 1", "test_filter": "exit 0 #{pytest_k}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 0
+
+
+def test_whole_suite_runs_when_every_task_is_done(proj, monkeypatch):
+    write_plan(proj, PLAN.replace("[ ]", "[x]"))
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": f"{MARKER} && exit 0", "test_filter": "exit 1 #{ac_regex}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 0
+    assert (proj / "ran.marker").exists()
+
+
+def test_without_a_filter_the_whole_suite_runs(proj, monkeypatch):
+    write_plan(proj)
+    set_test_command(proj, f"{MARKER} && exit 1")
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    assert (proj / "ran.marker").exists()

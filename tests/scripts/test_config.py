@@ -17,6 +17,7 @@ def test_defaults_when_no_config_file(tmp_path):
         "test_command": None,
         "commit_gate_scope": "commit",
         "test_env_links": [".venv", "venv", "node_modules"],
+        "test_filter": None,
     }
 
 
@@ -86,3 +87,24 @@ def test_test_env_links_may_be_empty_or_nested(tmp_path):
     assert config.load(tmp_path)["test_env_links"] == []
     write(tmp_path, json.dumps({"test_env_links": ["tools/bin"]}))
     assert config.load(tmp_path)["test_env_links"] == ["tools/bin"]
+
+
+# ---------- per-task test scope ----------
+
+def test_test_filter_defaults_to_none(tmp_path):
+    assert config.load(tmp_path)["test_filter"] is None
+
+
+@pytest.mark.parametrize(
+    "value", ["node --test --test-name-pattern {ac_regex}", "pytest -q -k {pytest_k}"]
+)
+def test_test_filter_accepts_a_template_with_a_placeholder(tmp_path, value):
+    write(tmp_path, json.dumps({"test_filter": value}))
+    assert config.load(tmp_path)["test_filter"] == value
+
+
+@pytest.mark.parametrize("value", ["node --test", "", 3, ["x"]])
+def test_test_filter_must_be_a_string_with_a_placeholder(tmp_path, value):
+    write(tmp_path, json.dumps({"test_filter": value}))
+    with pytest.raises(config.ConfigError):
+        config.load(tmp_path)
