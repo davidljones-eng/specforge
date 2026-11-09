@@ -6,7 +6,15 @@ DEFAULT_CONFIG = {
     "code_dirs": ["src", "app", "lib"],
     "test_dirs": ["tests"],
     "test_command": None,
+    # "commit": run the commit gate on exactly what would be committed.
+    # "worktree": run it on the files on disk (the original behaviour).
+    "commit_gate_scope": "commit",
+    # Untracked paths the tests need (virtualenvs, installed packages). They are
+    # linked into the temporary commit tree when present.
+    "test_env_links": [".venv", "venv", "node_modules"],
 }
+
+COMMIT_GATE_SCOPES = ("commit", "worktree")
 
 
 class ConfigError(Exception):
@@ -19,6 +27,17 @@ def _check_dirs(key, value):
     for name in value:
         if not isinstance(name, str) or not name or "/" in name or "\\" in name:
             raise ConfigError(f"{key} entries must be plain folder names, got {name!r}")
+
+
+def _check_links(value):
+    if not isinstance(value, list):
+        raise ConfigError("test_env_links must be a list of relative paths")
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ConfigError(f"test_env_links entries must be non-empty strings, got {item!r}")
+        parts = item.replace("\\", "/").split("/")
+        if item.startswith(("/", "\\")) or ".." in parts:
+            raise ConfigError(f"test_env_links entries must stay inside the project, got {item!r}")
 
 
 def load(project_dir) -> dict:
@@ -41,4 +60,7 @@ def load(project_dir) -> dict:
     cmd = cfg["test_command"]
     if cmd is not None and (not isinstance(cmd, str) or not cmd.strip()):
         raise ConfigError("test_command must be a non-empty string")
+    if cfg["commit_gate_scope"] not in COMMIT_GATE_SCOPES:
+        raise ConfigError(f"commit_gate_scope must be one of {list(COMMIT_GATE_SCOPES)}")
+    _check_links(cfg["test_env_links"])
     return cfg
