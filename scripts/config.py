@@ -12,7 +12,13 @@ DEFAULT_CONFIG = {
     # Untracked paths the tests need (virtualenvs, installed packages). They are
     # linked into the temporary commit tree when present.
     "test_env_links": [".venv", "venv", "node_modules"],
+    # Optional command that runs only some tests. When set, the commit gate runs
+    # it with the AC-IDs of done tasks plus the current task, so each task can go
+    # red -> green on its own. Placeholders: {ac_regex}, {pytest_k}.
+    "test_filter": None,
 }
+
+FILTER_PLACEHOLDERS = ("{ac_regex}", "{pytest_k}")
 
 COMMIT_GATE_SCOPES = ("commit", "worktree")
 
@@ -63,4 +69,11 @@ def load(project_dir) -> dict:
     if cfg["commit_gate_scope"] not in COMMIT_GATE_SCOPES:
         raise ConfigError(f"commit_gate_scope must be one of {list(COMMIT_GATE_SCOPES)}")
     _check_links(cfg["test_env_links"])
+    flt = cfg["test_filter"]
+    if flt is not None and (
+        not isinstance(flt, str) or not any(ph in flt for ph in FILTER_PLACEHOLDERS)
+    ):
+        raise ConfigError(
+            f"test_filter must be a command containing one of {list(FILTER_PLACEHOLDERS)}"
+        )
     return cfg

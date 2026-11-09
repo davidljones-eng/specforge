@@ -37,9 +37,11 @@ The mode decides when you stop and ask the user to approve before continuing:
    - **RED**: write the failing test for the task's AC-ID (or confirm the planned one exists), run it, and show that it fails for the right reason. Commit with a `test:` prefix.
    - **GREEN**: write the minimum code to pass. Nothing extra. Run the **full** suite. Commit with a `feat:` prefix.
    - **REFACTOR**: clean up with the tests still green. Run the full suite. Commit with a `refactor:` prefix, only if you changed something.
-   - Tick the task off in `.spec/plan.md`.
+   - Tick the task off in `.spec/plan.md` only **after** its `feat:` (and `refactor:`) commits, and before starting the next task.
 
-4. Keep commits small, one concern each. A commit that is not a `test:` commit is blocked by a hook while tests fail.
+4. Keep commits small, one concern each. A commit that is not a `test:` commit is blocked by a hook while tests fail. The hook tests exactly what is being committed, so stage every file the commit needs.
+
+   **Per-task scope.** When the plan phase has already written tests for later tasks, the full suite keeps failing until the last task is done. If `.spec/config.json` sets `test_filter`, the commit hook runs only the tests for the ticked tasks plus the current task (the first unticked one), so each task's `feat:` commit can pass on its own. Tests for later tasks are expected to fail until their task comes up; that is not a reason to batch tasks together. If `test_filter` is not set and the full suite cannot pass yet, tell the user and suggest setting it (for example `"test_filter": "node --test --test-name-pattern {ac_regex}"` or `"pytest -q -k {pytest_k}"`) rather than committing several tasks at once.
 
 5. Pause for approval according to the mode above, summarizing what was done and what is next.
 

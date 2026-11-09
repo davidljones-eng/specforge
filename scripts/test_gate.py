@@ -41,6 +41,12 @@ _GIT_ADD = re.compile(r"^git(?:\s+-[cC]\s+\S+)*\s+add(?![\w-])")
 _COMMIT_OPTS_WITH_VALUE = set("mFcCt")  # short options whose value is the next token
 
 
+_TASK_LINE = re.compile(r"^\s*[-*]\s*\[( |x|X)\]\s*T\d+\b(?P<rest>.*)$")
+_AC_ID = re.compile(r"\bAC-\d+\b")
+_SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__"}
+_MAX_SCAN_BYTES = 2_000_000
+
+
 class CommitTreeError(Exception):
     """Could not work out what the commit would contain."""
 
@@ -221,6 +227,60 @@ def build_commit_tree(project: Path, command: str, links):
         raise
 
 
+def acs_in_scope(project):
+    """AC-IDs of the done tasks plus the first open task in .spec/plan.md.
+
+    None means "run the whole suite": there is no plan, no task list, or every
+    task is done.
+    """
+    plan = Path(project) / ".spec" / "plan.md"
+    if not plan.is_file():
+        return None
+    tasks = []
+    for line in plan.read_text(errors="replace").splitlines():
+        match = _TASK_LINE.match(line)
+        if match:
+            tasks.append((match.group(1) != " ", _AC_ID.findall(match.group("rest"))))
+    if not tasks or all(done for done, _ in tasks):
+        return None
+    first_open = next(i for i, (done, _) in enumerate(tasks) if not done)
+    ids = []
+    for i, (done, acs) in enumerate(tasks):
+        if done or i == first_open:
+            ids.extend(a for a in acs if a not in ids)
+    return ids or None
+
+
+def ac_regex(ids):
+    """A regex matching test names that start with or mention one of the IDs."""
+    return r"\b(?:" + "|".join(ids) + r")\b"
+
+
+def pytest_k(ids):
+    """A pytest -k expression for test functions named test_ac<n>_..."""
+    return " or ".join(f"ac{i.split('-')[1]}_" for i in ids)
+
+
+def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
+    number = ac_id.split("-")[1]
+    pattern = re.compile(rf"(?:\bAC-{number}\b|ac{number}_)", re.IGNORECASE)
+    for root, dirs, files in os.walk(run_dir, followlinks=False):
+        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
+        rel_parts = Path(root).relative_to(run_dir).parts
+        if not any(part in test_dirs for part in rel_parts):
+            continue
+        for name in files:
+            path = Path(root) / name
+            try:
+                if path.stat().st_size > _MAX_SCAN_BYTES:
+                    continue
+                if pattern.search(path.read_text(errors="ignore")):
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def _tail(output: str) -> str:
     lines = output.strip().splitlines()[-_TAIL_LINES:]
     return "\n".join(lines)[-_TAIL_CHARS:]
@@ -253,23 +313,43 @@ def evaluate(event, project_dir):
     if problem:
         return f"specforge: commit blocked, {problem}"
 
-    temp_root, run_dir, scope_note = None, project, ""
-    if cfg["commit_gate_scope"] == "commit" and is_git_repo(project):
-        try:
-            temp_root, run_dir = build_commit_tree(project, command, cfg["test_env_links"])
-        except CommitTreeError as e:
-            return f"specforge: commit blocked. {e}"
-        scope_note = (
-            "\nThe tests ran on exactly what this commit would contain; unstaged and "
-            "untracked files were not included. Stage everything the commit needs."
-        )
+    temp_root, run_dir, notes = None, project, []
     try:
-        result = subprocess.run(
-            test_command, shell=True, cwd=run_dir, capture_output=True,
-            text=True, errors="replace", timeout=TEST_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        return f"specforge: commit blocked. Tests timed out after {TEST_TIMEOUT}s: {test_command}"
+        if cfg["commit_gate_scope"] == "commit" and is_git_repo(project):
+            try:
+                temp_root, run_dir = build_commit_tree(project, command, cfg["test_env_links"])
+            except CommitTreeError as e:
+                return f"specforge: commit blocked. {e}"
+            notes.append(
+                "The tests ran on exactly what this commit would contain; unstaged and "
+                "untracked files were not included. Stage everything the commit needs."
+            )
+
+        scope = acs_in_scope(project) if cfg["test_filter"] else None
+        if scope:
+            missing = [a for a in scope if not _has_test_for(run_dir, cfg["test_dirs"], a)]
+            if missing:
+                return (
+                    f"specforge: commit blocked. No tests found for {', '.join(missing)} in "
+                    f"{', '.join(cfg['test_dirs'])}. Every AC of a done or current task needs "
+                    "a test named after its AC-ID before code for it can be committed."
+                )
+            test_command = (
+                cfg["test_filter"]
+                .replace("{ac_regex}", shlex.quote(ac_regex(scope)))
+                .replace("{pytest_k}", shlex.quote(pytest_k(scope)))
+            )
+            notes.append(
+                f"Only the tests for done tasks and the current task were run: {', '.join(scope)}."
+            )
+
+        try:
+            result = subprocess.run(
+                test_command, shell=True, cwd=run_dir, capture_output=True,
+                text=True, errors="replace", timeout=TEST_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return f"specforge: commit blocked. Tests timed out after {TEST_TIMEOUT}s: {test_command}"
     finally:
         if temp_root is not None:
             shutil.rmtree(temp_root, ignore_errors=True)
@@ -277,11 +357,12 @@ def evaluate(event, project_dir):
         return None
     if result.returncode == 127:
         return f"specforge: commit blocked. Test runner not found (exit 127): {test_command}"
+    note_text = "".join(f"\n{n}" for n in notes)
     return (
         f"specforge: commit blocked. Tests failed (exit {result.returncode}): {test_command}\n"
         f"{_tail(result.stdout + result.stderr)}\n"
         "Fix the tests, or commit failing tests with a 'test:' message prefix."
-        f"{scope_note}"
+        f"{note_text}"
     )
 
 

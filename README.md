@@ -161,7 +161,8 @@ Optional `.spec/config.json`:
   "test_dirs": ["tests", "spec_tests"],
   "test_command": "make test",
   "commit_gate_scope": "commit",
-  "test_env_links": [".venv", "node_modules"]
+  "test_env_links": [".venv", "node_modules"],
+  "test_filter": "pytest -q -k {pytest_k}"
 }
 ```
 
@@ -170,6 +171,7 @@ Optional `.spec/config.json`:
 - `test_command`: how to run the suite. If unset, specforge looks for `pytest`, then `npm test`, then `flutter test`. If it finds none, or the runner is not installed, commits are blocked with a message telling you to set it.
 - `commit_gate_scope`: `commit` (default) runs the commit gate on a temporary copy of exactly what is being committed. `worktree` runs it in the project folder instead, which is faster for slow suites but lets uncommitted files on disk make a commit pass.
 - `test_env_links`: untracked paths the tests need, such as a virtualenv or installed packages. Each one that exists is linked into the temporary copy. Default `.venv`, `venv`, `node_modules`. Paths must stay inside the project.
+- `test_filter`: optional. A command that runs only some tests, so each task can go red, then green, on its own even though the plan phase wrote tests for every task up front. When set, the commit gate runs it for the ACs of the ticked tasks in `plan.md` plus the current (first unticked) task, and runs the full `test_command` once every task is ticked. Placeholders, inserted already shell-quoted: `{ac_regex}`, a regex such as `\b(?:AC-1|AC-2)\b` for runners that filter by test name (`node --test --test-name-pattern {ac_regex}`, `npx jest -t {ac_regex}`), and `{pytest_k}`, an expression such as `ac1_ or ac2_` for pytest (`pytest -q -k {pytest_k}`). Before running, the gate checks that every AC in scope has a test named after it, so a filter that matches nothing can never pass.
 
 ## Example session
 

@@ -204,3 +204,11 @@ def test_approve_validates_target_and_prerequisites(root):
     assert "only" in low and "spec" in low and "plan" in low
     assert "refuse" in low
     assert "next" in low  # tells the user what to run next
+
+
+def test_build_explains_per_task_test_scope(root):
+    _, body, low = load(root, "build")
+    assert "test_filter" in body
+    assert "current task" in low
+    # tick the task only after its feat/refactor commits, so the gate's scope is right
+    assert "after" in low and "tick" in low
