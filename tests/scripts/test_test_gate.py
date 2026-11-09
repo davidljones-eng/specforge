@@ -666,3 +666,28 @@ def test_a_non_code_commit_with_no_done_tasks_runs_no_tests(gitproj, monkeypatch
     (gitproj / "notes.md").write_text("x\n")
     _git(gitproj, "add", "notes.md")
     assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj, "git commit -m 'docs: notes'")) == 0
+
+
+def test_docs_inside_code_folders_are_not_code_changes(scoped_gitproj, tmp_path_factory, monkeypatch):
+    out = tmp_path_factory.mktemp("o") / "got.txt"
+    monkeypatch.setenv("OUT", str(out))
+    (scoped_gitproj / "src" / "CLAUDE.md").write_text("Related ACs: AC-1, AC-2\n")
+    _git(scoped_gitproj, "add", "src/CLAUDE.md")
+    assert run_gate(monkeypatch, scoped_gitproj, git_commit_event(scoped_gitproj, "git commit -m 'docs: guide'")) == 0
+    assert "AC-2" not in out.read_text()
+
+
+@pytest.mark.parametrize(
+    "paths,expected",
+    [
+        (["src/a.js"], True),
+        (["apps/web/src/a.js"], True),
+        (["src/CLAUDE.md"], False),
+        (["src/tests/a.test.js"], False),
+        (["docs/x.md", ".spec/plan.md"], False),
+        (["README.md", "lib/util.py"], True),
+    ],
+)
+def test_touches_code(paths, expected):
+    cfg = {"code_dirs": ["src", "app", "lib"], "test_dirs": ["tests"]}
+    assert test_gate.touches_code(paths, cfg) is expected
