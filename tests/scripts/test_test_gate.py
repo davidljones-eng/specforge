@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 import json
 
 import pytest
@@ -319,3 +320,116 @@ def test_internal_error_fails_closed(proj, monkeypatch, capsys):
     monkeypatch.setattr(test_gate, "evaluate", boom)
     assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
     assert "kaboom" in capsys.readouterr().err
+
+
+# ---------- the gate tests what would be committed, not the working tree ----------
+
+import subprocess as _sp
+
+
+def _git(proj, *args):
+    return _sp.run(["git", *args], cwd=proj, check=True, capture_output=True, text=True).stdout
+
+
+@pytest.fixture
+def gitproj(tmp_path):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "config", "user.name", "t")
+    _git(tmp_path, "config", "user.email", "t@example.invalid")
+    (tmp_path / "README").write_text("x\n")
+    _git(tmp_path, "add", "README")
+    _git(tmp_path, "commit", "-qm", "init")
+    state.create(tmp_path)
+    state.approve(tmp_path, "spec")
+    state.approve(tmp_path, "plan")
+    return tmp_path
+
+
+def git_commit_event(proj, command="git commit -m 'feat: add thing'"):
+    return {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(proj)}
+
+
+def set_config(proj, **cfg):
+    (proj / ".spec" / "config.json").write_text(json.dumps(cfg))
+
+
+def staged(proj):
+    return _git(proj, "diff", "--cached", "--name-only").split()
+
+
+def test_unstaged_file_on_disk_does_not_make_a_commit_pass(gitproj, monkeypatch, capsys):
+    set_config(gitproj, test_command="test -f index.html")
+    (gitproj / "index.html").write_text("page\n")  # on disk, never staged
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj)) == 2
+    assert "tests failed" in capsys.readouterr().err.lower()
+
+
+def test_unstaged_edit_does_not_make_a_commit_pass(gitproj, monkeypatch):
+    set_config(gitproj, test_command="grep -q GOOD app.txt")
+    (gitproj / "app.txt").write_text("BAD\n")
+    _git(gitproj, "add", "app.txt")
+    (gitproj / "app.txt").write_text("GOOD\n")  # fixed on disk only
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj)) == 2
+
+
+def test_staged_content_that_passes_is_allowed_despite_bad_unstaged_edits(gitproj, monkeypatch):
+    set_config(gitproj, test_command="grep -q GOOD app.txt")
+    (gitproj / "app.txt").write_text("GOOD\n")
+    _git(gitproj, "add", "app.txt")
+    (gitproj / "app.txt").write_text("BAD\n")
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj)) == 0
+
+
+def test_git_add_in_the_same_command_is_taken_into_account(gitproj, monkeypatch):
+    set_config(gitproj, test_command="test -f index.html")
+    (gitproj / "index.html").write_text("page\n")
+    event = git_commit_event(gitproj, "git add index.html && git commit -m 'feat: page'")
+    assert run_gate(monkeypatch, gitproj, event) == 0
+    assert staged(gitproj) == []  # the real index is untouched by the gate
+
+
+def test_commit_all_flag_includes_tracked_changes(gitproj, monkeypatch):
+    set_config(gitproj, test_command="grep -q GOOD app.txt")
+    (gitproj / "app.txt").write_text("BAD\n")
+    _git(gitproj, "add", "app.txt")
+    _git(gitproj, "commit", "-qm", "test: app")
+    (gitproj / "app.txt").write_text("GOOD\n")
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj, "git commit -am 'feat: fix'")) == 0
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj, "git commit -m 'feat: fix'")) == 2
+
+
+def test_configured_env_links_are_available_to_the_tests(gitproj, monkeypatch):
+    set_config(gitproj, test_command="test -f envdir/tool", test_env_links=["envdir"])
+    (gitproj / "envdir").mkdir()
+    (gitproj / "envdir" / "tool").write_text("")
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj)) == 0
+
+
+def test_common_env_dirs_are_linked_by_default(gitproj, monkeypatch):
+    set_config(gitproj, test_command="test -f node_modules/dep/index.js")
+    (gitproj / "node_modules" / "dep").mkdir(parents=True)
+    (gitproj / "node_modules" / "dep" / "index.js").write_text("")
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj)) == 0
+
+
+def test_worktree_scope_keeps_the_old_behaviour(gitproj, monkeypatch):
+    set_config(gitproj, test_command="test -f index.html", commit_gate_scope="worktree")
+    (gitproj / "index.html").write_text("page\n")
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj)) == 0
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_temporary_tree_is_removed_afterwards(gitproj, tmp_path_factory, monkeypatch, exit_code):
+    record = tmp_path_factory.mktemp("rec") / "where.txt"
+    set_config(gitproj, test_command=f"pwd -P > {record}; exit {exit_code}")
+    run_gate(monkeypatch, gitproj, git_commit_event(gitproj))
+    ran_in = Path(record.read_text().strip())
+    assert ran_in != gitproj.resolve()
+    assert not ran_in.exists()
+
+
+def test_failed_replay_of_git_add_blocks_with_reason(gitproj, monkeypatch, capsys):
+    set_config(gitproj, test_command="exit 0")
+    event = git_commit_event(gitproj, "git add no-such-file && git commit -m 'feat: x'")
+    assert run_gate(monkeypatch, gitproj, event) == 2
+    assert "git add" in capsys.readouterr().err

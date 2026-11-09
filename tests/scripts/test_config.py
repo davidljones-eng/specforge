@@ -15,6 +15,8 @@ def test_defaults_when_no_config_file(tmp_path):
         "code_dirs": ["src", "app", "lib"],
         "test_dirs": ["tests"],
         "test_command": None,
+        "commit_gate_scope": "commit",
+        "test_env_links": [".venv", "venv", "node_modules"],
     }
 
 
@@ -50,3 +52,37 @@ def test_invalid_config_raises(tmp_path, raw):
     write(tmp_path, raw)
     with pytest.raises(config.ConfigError):
         config.load(tmp_path)
+
+
+# ---------- commit gate settings ----------
+
+def test_commit_gate_defaults(tmp_path):
+    cfg = config.load(tmp_path)
+    assert cfg["commit_gate_scope"] == "commit"
+    assert cfg["test_env_links"] == [".venv", "venv", "node_modules"]
+
+
+@pytest.mark.parametrize("scope", ["commit", "worktree"])
+def test_commit_gate_scope_accepts_known_values(tmp_path, scope):
+    write(tmp_path, json.dumps({"commit_gate_scope": scope}))
+    assert config.load(tmp_path)["commit_gate_scope"] == scope
+
+
+def test_commit_gate_scope_rejects_unknown_values(tmp_path):
+    write(tmp_path, json.dumps({"commit_gate_scope": "staged"}))
+    with pytest.raises(config.ConfigError):
+        config.load(tmp_path)
+
+
+@pytest.mark.parametrize("links", ["envdir", [""], ["/abs"], ["../up"], ["a/../../b"], [3]])
+def test_test_env_links_must_be_relative_paths_inside_the_project(tmp_path, links):
+    write(tmp_path, json.dumps({"test_env_links": links}))
+    with pytest.raises(config.ConfigError):
+        config.load(tmp_path)
+
+
+def test_test_env_links_may_be_empty_or_nested(tmp_path):
+    write(tmp_path, json.dumps({"test_env_links": []}))
+    assert config.load(tmp_path)["test_env_links"] == []
+    write(tmp_path, json.dumps({"test_env_links": ["tools/bin"]}))
+    assert config.load(tmp_path)["test_env_links"] == ["tools/bin"]
