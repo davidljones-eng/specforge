@@ -66,7 +66,7 @@ Do steps 1 and 2 once per project. From step 3 on, this is the loop for every fe
 
 3. **Start Claude Code in the project folder** with `claude`, then run `/specforge:status`. Expect it to say there is no workflow yet.
 
-4. **Describe the feature.** Run `/specforge:spec <what you want to build>`, for example `/specforge:spec REST API for todos: create, list, complete, delete. In memory, no auth.` Answer up to 5 questions. Expect `.spec/requirement.md`, `.spec/spec.md` with numbered criteria (AC-1, AC-2, ...) and a root `CLAUDE.md`, a `spec-reviewer` verdict, and then a stop. Claude does not start planning.
+4. **Describe the feature.** Run `/specforge:spec <what you want to build>`, for example `/specforge:spec REST API for todos: create, list, complete, delete. In memory, no auth.` Answer up to 5 questions. Expect `.spec/source.md` (your description and answers, saved verbatim), `.spec/requirement.md`, `.spec/spec.md` with numbered criteria (AC-1, AC-2, ...) and a root `CLAUDE.md`, a `spec-reviewer` verdict, and then a stop. Claude does not start planning.
 
 5. **Review `.spec/spec.md`.** Edit it or ask Claude to change it. Changes before approval cost nothing.
 
@@ -120,7 +120,7 @@ If `.spec/spec.md` changes after approval, the spec version goes up and both app
 
 | Command | What it does |
 |---|---|
-| `/specforge:spec <description>` | Asks up to 5 clarifying questions, writes `requirement.md`, `spec.md` and `CLAUDE.md`, runs `spec-reviewer`, then stops. |
+| `/specforge:spec <description>` | Asks up to 5 clarifying questions, saves your description verbatim to `source.md`, writes `requirement.md`, `spec.md` and `CLAUDE.md`, runs `spec-reviewer` (which checks the spec against `source.md`), then stops. |
 | `/specforge:plan` | Refuses unless the spec is approved. Writes `plan.md`, folders with short `CLAUDE.md` files, and failing tests. Stops. |
 | `/specforge:build [--mode strict\|checkpoint\|auto]` | Refuses unless spec and plan are approved. Builds on a feature branch with red, green, refactor per task. |
 | `/specforge:review` | Fresh `code-reviewer`, writes `review.md`, opens a PR. Never merges. |
