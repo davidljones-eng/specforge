@@ -593,3 +593,76 @@ def test_without_a_filter_the_whole_suite_runs(proj, monkeypatch):
     set_test_command(proj, f"{MARKER} && exit 1")
     assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
     assert (proj / "ran.marker").exists()
+
+
+# ---------- scope fixes found in the Track C v2 run ----------
+
+def test_ac_mentions_in_docs_inside_test_folders_do_not_count_as_tests(proj, monkeypatch, capsys):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-4")
+    (proj / "tests" / "CLAUDE.md").write_text("Related ACs: AC-18, AC-23, AC-24, AC-4\n")
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": "exit 0 #{ac_regex}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    assert "AC-24" in capsys.readouterr().err
+
+
+SCOPE_PLAN = """## Tasks
+- [x] T1 (M1, AC-1): first
+- [ ] T2 (M1, AC-2): second
+"""
+
+
+@pytest.fixture
+def scoped_gitproj(gitproj):
+    (gitproj / ".spec" / "plan.md").write_text(SCOPE_PLAN)
+    (gitproj / "tests").mkdir()
+    (gitproj / "tests" / "one.test.js").write_text('test("AC-1: works", () => {});\n')
+    (gitproj / "src").mkdir()
+    (gitproj / "src" / "a.js").write_text("export const a = 1;\n")
+    set_config(gitproj, test_command="exit 1",
+               test_filter="printf '%s' {ac_regex} > \"$OUT\"; exit 0")
+    _git(gitproj, "add", "tests", "src")
+    _git(gitproj, "commit", "-qm", "test: T1")
+    return gitproj
+
+
+def test_a_commit_without_code_changes_is_checked_against_done_tasks_only(
+    scoped_gitproj, tmp_path_factory, monkeypatch
+):
+    out = tmp_path_factory.mktemp("o") / "got.txt"
+    monkeypatch.setenv("OUT", str(out))
+    (scoped_gitproj / "docs").mkdir()
+    (scoped_gitproj / "docs" / "notes.md").write_text("spec v2\n")
+    _git(scoped_gitproj, "add", "docs")
+    assert run_gate(monkeypatch, scoped_gitproj, git_commit_event(scoped_gitproj, "git commit -m 'docs: v2'")) == 0
+    assert "AC-1" in out.read_text() and "AC-2" not in out.read_text()
+
+
+def test_a_code_commit_for_the_current_task_needs_its_tests(scoped_gitproj, monkeypatch, capsys):
+    (scoped_gitproj / "src" / "a.js").write_text("export const a = 2;\n")
+    _git(scoped_gitproj, "add", "src")
+    assert run_gate(monkeypatch, scoped_gitproj, git_commit_event(scoped_gitproj)) == 2
+    assert "AC-2" in capsys.readouterr().err
+
+
+def test_a_code_commit_includes_the_current_task_once_its_tests_exist(
+    scoped_gitproj, tmp_path_factory, monkeypatch
+):
+    out = tmp_path_factory.mktemp("o") / "got.txt"
+    monkeypatch.setenv("OUT", str(out))
+    (scoped_gitproj / "tests" / "two.test.js").write_text('test("AC-2: works", () => {});\n')
+    (scoped_gitproj / "src" / "a.js").write_text("export const a = 2;\n")
+    _git(scoped_gitproj, "add", "src", "tests")
+    assert run_gate(monkeypatch, scoped_gitproj, git_commit_event(scoped_gitproj)) == 0
+    assert "AC-1" in out.read_text() and "AC-2" in out.read_text()
+
+
+def test_a_non_code_commit_with_no_done_tasks_runs_no_tests(gitproj, monkeypatch):
+    (gitproj / ".spec" / "plan.md").write_text("## Tasks\n- [ ] T1 (M1, AC-1): first\n")
+    set_config(gitproj, test_command=f"{MARKER}; exit 1",
+               test_filter=f"{MARKER}; exit 1 #{{ac_regex}}")
+    (gitproj / "notes.md").write_text("x\n")
+    _git(gitproj, "add", "notes.md")
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj, "git commit -m 'docs: notes'")) == 0
