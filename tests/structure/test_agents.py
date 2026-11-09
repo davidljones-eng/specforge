@@ -81,6 +81,14 @@ def test_spec_reviewer_checks_the_spec_quality_rules(root):
     assert "verdict" in low
 
 
+
+def test_spec_reviewer_checks_fidelity_to_the_source(root):
+    _, body, low = load(root, "spec-reviewer")
+    assert ".spec/source.md" in body
+    assert "fidelity" in low
+    for needle in ("quoted", "number", "unchanged", "blocking"):
+        assert needle in low, needle
+
 def test_code_reviewer_maps_every_ac_with_locations(root):
     _, body, low = load(root, "code-reviewer")
     assert "every ac" in low

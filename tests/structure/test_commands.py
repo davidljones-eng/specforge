@@ -75,6 +75,20 @@ def test_spec_uses_the_templates(root):
         assert f"skills/spec-writing/templates/{tpl}" in body
 
 
+
+def test_spec_saves_the_description_verbatim_as_the_source(root):
+    _, body, low = load(root, "spec")
+    assert ".spec/source.md" in body
+    assert "verbatim" in low
+    # it must be saved before anything is derived from it
+    assert body.index(".spec/source.md") < body.index("skills/spec-writing/templates/requirement.md")
+
+
+def test_spec_reviewer_is_given_the_source(root):
+    _, body, _ = load(root, "spec")
+    review_step = next(l for l in body.splitlines() if "spec-reviewer" in l and "subagent" in l)
+    assert ".spec/source.md" in review_step
+
 # ---------- /specforge:plan ----------
 
 def test_plan_refuses_when_spec_not_approved(root):
