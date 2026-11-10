@@ -2,6 +2,8 @@
 """Hook script that enforces specforge's approval gates.
 
 PreToolUse (default): exit 0 to allow, exit 2 with a reason on stderr to block.
+Bash commands that would approve are blocked: only approve_hook.py records an
+approval, from a prompt the user submits (M5).
 With test_filter set, code for the current task also waits until red.py has
 seen that task's tests fail (M4, red_first).
 PostToolUse (--post): after spec.md changes post-approval, bump the spec version
@@ -32,6 +34,12 @@ _WRITE_HINT = re.compile(
 )
 _HARMLESS_REDIRECT = re.compile(r"\d*>&\d*-?|\d*>\s*/dev/null")
 
+# M5: approvals are recorded only by approve_hook.py, from a prompt the user
+# submits. Quotes and backslashes are dropped first, so st"ate".py still matches.
+_STATE_MODULE = re.compile(r"state\.py|\bimport\s+state\b|\bfrom\s+state\s+import\b")
+_APPROVE = re.compile(r"\bapprove\b")
+_APPROVE_COMMAND = re.compile(r"specforge:approve\b")
+
 
 def classify(rel_parts, cfg) -> str:
     dirs, name = rel_parts[:-1], rel_parts[-1]
@@ -60,12 +68,34 @@ def _target_parts(event, project: Path):
 def _evaluate_bash(event, project: Path):
     tool_input = event.get("tool_input")
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if not isinstance(command, str) or "state.json" not in command:
+    if not isinstance(command, str):
+        return None
+    bare = re.sub(r"[\"'\\]", "", command)
+    if _APPROVE_COMMAND.search(bare) or (_STATE_MODULE.search(bare) and _APPROVE.search(bare)):
+        return (
+            "specforge: only the user can approve. Approvals are recorded when the user "
+            "submits /specforge:approve spec|plan; ask them to run it."
+        )
+    if "state.json" not in command:
         return None
     if _WRITE_HINT.search(_HARMLESS_REDIRECT.sub("", command)):
         return (
             "specforge: .spec/state.json cannot be modified through Bash. "
             "Use /specforge:approve spec|plan to record an approval."
+        )
+    return None
+
+
+def _evaluate_skill(event):
+    """Block the model loading /specforge:approve, which disable-model-invocation
+    does not stop when the user asks for it. Only a prompt the user submits
+    records an approval, so loading it would only confuse."""
+    tool_input = event.get("tool_input")
+    name = tool_input.get("skill") if isinstance(tool_input, dict) else None
+    if isinstance(name, str) and name.lstrip("/") == "specforge:approve":
+        return (
+            "specforge: only the user can approve. Ask the user to type "
+            "/specforge:approve spec|plan themselves; it does nothing when you run it."
         )
     return None
 
@@ -79,6 +109,8 @@ def evaluate(event, project_dir):
     tool = event.get("tool_name")
     if tool == "Bash":
         return _evaluate_bash(event, project)
+    if tool == "Skill":
+        return _evaluate_skill(event)
     if tool not in EDIT_TOOLS:
         return None
 

@@ -123,6 +123,7 @@ def update(project_dir, **changes) -> dict:
 
 
 def approve(project_dir, target) -> dict:
+    """Record an approval. Only approve_hook.py calls this outside tests (M5)."""
     if target == "spec":
         return update(project_dir, spec_approved=True)
     if target == "plan":
@@ -167,7 +168,6 @@ def main(argv=None) -> int:
     init.add_argument("--mode", default="checkpoint")
     sub.add_parser("get")
     sub.add_parser("bump")
-    sub.add_parser("approve").add_argument("target")
     sub.add_parser("set-phase").add_argument("phase")
     sub.add_parser("set-mode").add_argument("mode")
     args = parser.parse_args(argv)
@@ -179,8 +179,6 @@ def main(argv=None) -> int:
             result = read(args.project_dir)
         elif args.cmd == "bump":
             result = bump_spec_version(args.project_dir)
-        elif args.cmd == "approve":
-            result = approve(args.project_dir, args.target)
         elif args.cmd == "set-phase":
             result = update(args.project_dir, phase=args.phase)
         else:
