@@ -122,3 +122,10 @@ def test_test_writer_must_not_peek_at_or_write_implementation(root):
 def test_test_writer_names_tests_after_ac_ids(root):
     _, _, low = load(root, "test-writer")
     assert "name" in low and "ac-id" in low
+
+
+def test_test_writer_starts_each_name_with_its_own_ac_id(root):
+    # the commit gate's test_filter selects tests by the AC-ID a name starts with
+    _, _, low = load(root, "test-writer")
+    assert "start each test's name with its own ac-id" in low
+    assert "other acs" in low
