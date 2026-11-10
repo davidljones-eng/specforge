@@ -120,7 +120,7 @@ If `.spec/spec.md` changes after approval, the spec version goes up and both app
 
 | Command | What it does |
 |---|---|
-| `/specforge:spec <description>` | Asks up to 5 clarifying questions, saves your description verbatim to `source.md`, writes `requirement.md`, `spec.md` and `CLAUDE.md`, runs `spec-reviewer` (which checks the spec against `source.md`), then stops. |
+| `/specforge:spec [--from <file> ...] <description>` | Asks up to 5 clarifying questions, saves your description verbatim to `source.md` (with `--from`, `scripts/import_source.py` copies the files there unchanged, such as a SPEC+ document and its SPEC Lite), writes `requirement.md`, `spec.md` and `CLAUDE.md`, runs `spec-reviewer` (which checks the spec against `source.md`), then stops. |
 | `/specforge:plan` | Refuses unless the spec is approved. Writes `plan.md`, folders with short `CLAUDE.md` files, and failing tests. Stops. |
 | `/specforge:build [--mode strict\|checkpoint\|auto]` | Refuses unless spec and plan are approved. Builds on a feature branch with red, green, refactor per task. |
 | `/specforge:review` | Fresh `code-reviewer`, writes `review.md`, opens a PR. Never merges. |
@@ -169,7 +169,7 @@ Optional `.spec/config.json`:
 - `test_dirs`: folder names that count as tests. Default `tests`. A path inside both, such as `app/tests/x.py`, counts as a test.
 - `test_command`: how to run the suite. If unset, specforge looks for `pytest`, then `npm test`, then `flutter test`. If it finds none, or the runner is not installed, commits are blocked with a message telling you to set it.
 - `source_fidelity`: `true` (default) makes `/specforge:spec` save your description and answers word for word to `.spec/source.md`, copy its quoted strings and numbers into the spec exactly, carry its constraints (stack, dependencies, storage) into the spec's Scope or Out of Scope, and have `spec-reviewer` treat any change to them, or a constraint kept only in `requirement.md`, as blocking. `false` gives the original spec phase: no `source.md` and no fidelity check. Set it before running `/specforge:spec`.
-- `ac_budget`: `15` (default). When the spec has more ACs than this, `spec-reviewer` suggests splitting the feature or merging ACs that only restate others. It's a suggestion for you, never a blocking issue, and Claude doesn't cut ACs on its own to meet it. `/specforge:spec`'s summary always shows the size, from `scripts/spec_size.py`: for example `6 source checks → 21 ACs (budget 15). C1: 4, C2: 1, … Over budget by 6.` `null` turns the suggestion off.
+- `ac_budget`: `15` (default). When the spec has more ACs than this, `spec-reviewer` suggests splitting the feature or merging ACs that only restate others. It's a suggestion for you, never a blocking issue, and Claude doesn't cut ACs on its own to meet it. `/specforge:spec`'s summary always shows the size, from `scripts/spec_size.py`: for example `6 source checks → 21 ACs (budget 15). C1: 4, C2: 1, … Over budget by 6.` `null` turns the suggestion off. The line also names any source check with no AC and no Out of Scope entry (`Uncovered checks: C4.`), which the reviewer treats as blocking.
 
 ## Example session
 
@@ -246,6 +246,6 @@ commands/         spec, plan, build, review, status, approve
 agents/           spec-reviewer, test-writer, code-reviewer
 skills/           spec-writing (SKILL.md and templates)
 hooks/hooks.json  gate wiring
-scripts/          state.py, config.py, gate_check.py, test_gate.py, spec_size.py
+scripts/          state.py, config.py, gate_check.py, test_gate.py, spec_size.py, import_source.py
 tests/            structure/ and scripts/
 ```

@@ -5,7 +5,8 @@ Prints one line for the spec phase's summary and for spec-reviewer, e.g.
 
     6 source checks → 21 ACs (budget 15). C1: 2, C2: 3, ... no C-ID: 1. Over budget by 6.
 
-The source checks are the C-IDs in the first column of .spec/source.md's ID
+A source check with no AC tagged with it, and no mention in the spec's Out of
+Scope section, is listed as uncovered (M9). The source checks are the C-IDs in the first column of .spec/source.md's ID
 tables (SPEC+ style). An AC's tags are the list right after its ID, as in
 "- AC-3 (C1):" or "- AC-4 [C1, E2]:"; only its C-IDs count here. These rules
 match tools/check_coverage.py in the Spec-Engineering repo. The counts are
@@ -67,6 +68,22 @@ def _ac_tags(text):
     return acs
 
 
+def _out_of_scope_ids(text):
+    """C-IDs mentioned in the spec's Out of Scope section."""
+    ids, level = set(), None
+    for line in text.splitlines():
+        heading = re.match(r"^(#+)\s*(.*?)\s*$", line)
+        if heading:
+            if level is not None and len(heading.group(1)) <= level:
+                break
+            if heading.group(2).lower() == "out of scope":
+                level = len(heading.group(1))
+            continue
+        if level is not None:
+            ids.update(re.findall(r"\bC\d+\b", line))
+    return ids
+
+
 def _number(cid):
     return int(cid[1:])
 
@@ -89,12 +106,15 @@ def measure(project_dir) -> dict:
             per_check[c] = per_check.get(c, 0) + 1
     per_check = dict(sorted(per_check.items(), key=lambda kv: (kv[0] not in checks, _number(kv[0]))))
 
+    out_of_scope = _out_of_scope_ids(spec)
     budget = cfg["ac_budget"]
     return {
         "acs": acs,
         "checks": checks,
         "per_check": per_check,
         "untagged": [a for a in acs if not tags[a]],
+        "out_of_scope": [c for c in checks if per_check[c] == 0 and c in out_of_scope],
+        "uncovered": [c for c in checks if per_check[c] == 0 and c not in out_of_scope],
         "budget": budget,
         "over": max(0, len(acs) - budget) if budget is not None else 0,
     }
@@ -108,15 +128,21 @@ def summary_line(m) -> str:
     budget = f"budget {m['budget']}" if m["budget"] is not None else "no budget"
     acs = f"{_plural(len(m['acs']), 'AC')} ({budget})."
     if m["checks"]:
-        parts = [
-            f"{c}: {n}" if c in m["checks"] else f"{c} (not in the source): {n}"
-            for c, n in m["per_check"].items()
-        ]
+        parts = []
+        for c, n in m["per_check"].items():
+            if c not in m["checks"]:
+                parts.append(f"{c} (not in the source): {n}")
+            elif c in m["out_of_scope"]:
+                parts.append(f"{c}: {n} (out of scope)")
+            else:
+                parts.append(f"{c}: {n}")
         if m["untagged"]:
             parts.append(f"no C-ID: {len(m['untagged'])}")
         line = f"{_plural(len(m['checks']), 'source check')} → {acs} {', '.join(parts)}."
     else:
         line = acs
+    if m["uncovered"]:
+        line += f" Uncovered checks: {', '.join(m['uncovered'])}."
     if m["over"]:
         line += f" Over budget by {m['over']}."
     return line
