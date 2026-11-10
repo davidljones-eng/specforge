@@ -7,7 +7,9 @@ and the plan are approved. Exit 0 allows, exit 2 blocks with a reason on stderr.
 
 By default (commit_gate_scope "commit") the suite runs on exactly what would be
 committed: the staged files, plus any `git add ...` in the same command replayed
-into a temporary index, plus tracked changes for `commit -a`. That copy lives in
+into a temporary index, plus tracked changes for `commit -a`. For `git commit
+<paths>` it is HEAD plus the copies on disk of the tracked files named (`-i`
+keeps the other staged changes too), as git does. That copy lives in
 a temporary directory that is always removed. Untracked files on disk are not
 included, so they cannot make a commit pass. "worktree" keeps the original
 behaviour of running the suite in the project directory.
@@ -133,34 +135,120 @@ def _segments_before_first_commit(command: str):
     return [seg.strip() for seg in _SEGMENT_SPLIT.split(before) if seg.strip()]
 
 
-def commit_includes_tracked_changes(command: str) -> bool:
-    """True if the first `git commit` in the command uses -a / --all."""
+_SHELL_OPERATOR_CHARS = "();<>|&\n"
+# Long options whose value is the next token when it isn't given with "=".
+_COMMIT_LONG_OPTS_WITH_VALUE = {
+    "--message", "--file", "--author", "--date", "--template", "--reuse-message",
+    "--reedit-message", "--fixup", "--squash", "--cleanup", "--trailer",
+    "--pathspec-from-file",
+}
+_COMMIT_OPTS_OPTIONAL_VALUE = set("uS")  # -uno, -S<keyid>: the value is attached
+
+
+def _commit_tokens(rest: str):
+    """The arguments of a `git commit`, up to the first shell operator."""
+    lexer = shlex.shlex(rest, posix=True, punctuation_chars=_SHELL_OPERATOR_CHARS)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    tokens = []
+    try:
+        for tok in lexer:
+            if tok and set(tok) <= set(_SHELL_OPERATOR_CHARS):
+                if tok[0] in "<>" and tokens and tokens[-1].isdigit():
+                    tokens.pop()  # the "2" of "2>&1"
+                break
+            tokens.append(tok)
+    except ValueError:  # unbalanced quotes: fall back to the first line
+        tokens = _SEGMENT_SPLIT.split(rest)[0].split()
+    return tokens
+
+
+def commit_args(command: str) -> dict:
+    """What the first `git commit` in the command asks for.
+
+    "paths" are the pathspecs it names, "mode" is "include" for -i / --include
+    and "only" otherwise, "all" is -a / --all, and "pathspec_file" is
+    --pathspec-from-file.
+    """
+    args = {"all": False, "mode": "only", "paths": [], "pathspec_file": False}
     match = _COMMIT.search(command)
     if not match:
-        return False
-    rest = _SEGMENT_SPLIT.split(command[match.end():])[0]
-    try:
-        tokens = shlex.split(rest)
-    except ValueError:
-        tokens = rest.split()
-    skip = False
-    for tok in tokens:
+        return args
+    skip = after_dashes = False
+    for tok in _commit_tokens(command[match.end():]):
         if skip:
             skip = False
-            continue
-        if tok == "--all":
-            return True
-        if tok.startswith("--"):
-            continue
-        if tok.startswith("-") and len(tok) > 1 and tok[1:].isalpha():
+        elif after_dashes or not tok.startswith("-") or tok == "-":
+            args["paths"].append(tok)
+        elif tok == "--":
+            after_dashes = True
+        elif tok.startswith("--"):
+            name = tok.split("=", 1)[0]
+            if name == "--all":
+                args["all"] = True
+            elif name == "--include":
+                args["mode"] = "include"
+            elif name == "--only":
+                args["mode"] = "only"
+            elif name == "--pathspec-from-file":
+                args["pathspec_file"] = True
+            skip = "=" not in tok and name in _COMMIT_LONG_OPTS_WITH_VALUE
+        else:
             letters = tok[1:]
             for i, letter in enumerate(letters):
                 if letter == "a":
-                    return True
+                    args["all"] = True
+                elif letter == "i":
+                    args["mode"] = "include"
+                elif letter == "o":
+                    args["mode"] = "only"
+                if letter in _COMMIT_OPTS_OPTIONAL_VALUE:
+                    break
                 if letter in _COMMIT_OPTS_WITH_VALUE:
                     skip = i == len(letters) - 1  # value is the next token
                     break
-    return False
+    return args
+
+
+def commit_includes_tracked_changes(command: str) -> bool:
+    """True if the first `git commit` in the command uses -a / --all."""
+    return commit_args(command)["all"]
+
+
+def _stage_named_paths(project: Path, env, args, has_head):
+    """Make the temporary index hold what `git commit <paths>` would commit.
+
+    Like git: the tracked files the paths match (with --only, also files
+    deleted since HEAD) are taken from disk. --only starts from HEAD, so other
+    staged changes are left out; --include keeps them. Untracked files are never
+    added.
+    """
+    listing = ["ls-files", "-z"]
+    if args["mode"] == "only":
+        listing.append("--error-unmatch")
+        if has_head:
+            listing.append("--with-tree=HEAD")
+    result = _git(project, *listing, "--", *args["paths"], env=env)
+    if result.returncode:
+        raise CommitTreeError(
+            f"git would refuse this commit: {_tail(result.stderr).strip()}"
+        )
+    files = list(dict.fromkeys(p for p in result.stdout.split("\0") if p))
+    if args["mode"] == "only":
+        result = _git(project, "read-tree", "HEAD" if has_head else "--empty", env=env)
+        if result.returncode:
+            raise CommitTreeError(f"could not start from HEAD: {_tail(result.stderr)}")
+    if not files:
+        return
+    result = subprocess.run(
+        ["git", "update-index", "--add", "--remove", "-z", "--stdin"],
+        cwd=project, env=env, input="\0".join(files) + "\0",
+        capture_output=True, text=True, errors="replace",
+    )
+    if result.returncode:
+        raise CommitTreeError(
+            f"could not take the named files from disk: {_tail(result.stderr)}"
+        )
 
 
 def build_commit_tree(project: Path, command: str, links):
@@ -197,7 +285,18 @@ def build_commit_tree(project: Path, command: str, links):
                     f"could not replay `{segment}` to see what would be committed:\n"
                     f"{_tail(result.stdout + result.stderr)}"
                 )
-        if commit_includes_tracked_changes(command):
+        has_head = _git(repo_top, "rev-parse", "--verify", "-q", "HEAD").returncode == 0
+        args = commit_args(command)
+        if args["pathspec_file"]:
+            raise CommitTreeError(
+                "`git commit --pathspec-from-file` is not supported by the gate. Stage the "
+                "files with `git add` and commit without naming paths."
+            )
+        if args["paths"]:
+            if args["all"]:
+                raise CommitTreeError("git refuses `commit -a` together with paths.")
+            _stage_named_paths(project, env, args, has_head)
+        elif args["all"]:
             result = _git(repo_top, "add", "-u", env=env)
             if result.returncode:
                 raise CommitTreeError(f"could not apply `commit -a`: {_tail(result.stderr)}")
