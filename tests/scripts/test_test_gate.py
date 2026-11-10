@@ -428,6 +428,35 @@ def test_temporary_tree_is_removed_afterwards(gitproj, tmp_path_factory, monkeyp
     assert not ran_in.exists()
 
 
+@pytest.mark.parametrize("how", ["timeout", "crash"])
+def test_temporary_tree_is_removed_after_a_timeout_or_a_crash(gitproj, monkeypatch, how):
+    built = []
+    real_build = test_gate.build_commit_tree
+
+    def recording_build(*args, **kwargs):
+        result = real_build(*args, **kwargs)
+        built.append(result[0])
+        return result
+
+    monkeypatch.setattr(test_gate, "build_commit_tree", recording_build)
+    if how == "timeout":
+        monkeypatch.setattr(test_gate, "TEST_TIMEOUT", 1)
+        set_config(gitproj, test_command="sleep 5")
+    else:
+        set_config(gitproj, test_command="exit 0")
+        real_run = test_gate.subprocess.run
+
+        def crash_the_test_run(*a, **k):
+            if k.get("timeout") == test_gate.TEST_TIMEOUT:
+                raise RuntimeError("kaboom")
+            return real_run(*a, **k)
+
+        monkeypatch.setattr(test_gate.subprocess, "run", crash_the_test_run)
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj)) == 2
+    assert len(built) == 1
+    assert not built[0].exists()
+
+
 def test_failed_replay_of_git_add_blocks_with_reason(gitproj, monkeypatch, capsys):
     set_config(gitproj, test_command="exit 0")
     event = git_commit_event(gitproj, "git add no-such-file && git commit -m 'feat: x'")
@@ -451,6 +480,183 @@ def test_failed_replay_of_git_add_blocks_with_reason(gitproj, monkeypatch, capsy
 )
 def test_commit_all_flag_detection(command, expected):
     assert test_gate.commit_includes_tracked_changes(command) is expected
+
+
+# `git commit <paths>` commits the copies on disk of the tracked files it names,
+# on top of HEAD, and leaves other staged changes out. `-i <paths>` adds those
+# copies to everything staged. The gate has to test that, not the index.
+
+@pytest.fixture
+def pathproj(gitproj):
+    """app.txt is OLD in HEAD, GOOD in the index and BAD on disk."""
+    (gitproj / "app.txt").write_text("OLD\n")
+    _git(gitproj, "add", "app.txt")
+    _git(gitproj, "commit", "-qm", "test: app")
+    (gitproj / "app.txt").write_text("GOOD\n")
+    _git(gitproj, "add", "app.txt")
+    (gitproj / "app.txt").write_text("BAD\n")
+    set_config(gitproj, test_command="grep -q GOOD app.txt")
+    return gitproj
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git commit -m 'feat: fix' app.txt",
+        "git commit -m 'feat: fix' -- app.txt",
+        "git commit app.txt -m 'feat: fix'",
+        "git commit --only -m 'feat: fix' app.txt",
+        "git commit -o -m 'feat: fix' app.txt",
+        "git commit -i -m 'feat: fix' app.txt",
+        "git commit --include -m 'feat: fix' app.txt",
+        "git commit --amend -m 'feat: fix' app.txt",
+        "git commit -m 'feat: fix' *.txt",
+        "git commit --author 'A <a@example.invalid>' -m 'feat: fix' app.txt",
+    ],
+)
+def test_a_commit_naming_files_is_tested_on_their_copies_on_disk(pathproj, monkeypatch, command):
+    # The staged copy passes, but git would commit the failing copy on disk.
+    assert run_gate(monkeypatch, pathproj, git_commit_event(pathproj, command)) == 2
+
+
+def test_a_commit_naming_files_passes_when_their_copies_on_disk_pass(pathproj, monkeypatch):
+    (pathproj / "app.txt").write_text("BAD\n")
+    _git(pathproj, "add", "app.txt")
+    (pathproj / "app.txt").write_text("GOOD\n")
+    event = git_commit_event(pathproj, "git commit -m 'feat: fix' app.txt")
+    assert run_gate(monkeypatch, pathproj, event) == 0
+    assert staged(pathproj) == ["app.txt"]  # the real index is untouched by the gate
+    assert _git(pathproj, "show", ":app.txt") == "BAD\n"
+
+
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("git commit -m 'feat: fix' app.txt", 2),  # other.txt's staged GOOD is left out
+        ("git commit -i -m 'feat: fix' app.txt", 0),  # other.txt's staged GOOD is kept
+    ],
+)
+def test_only_leaves_out_other_staged_changes_and_include_keeps_them(
+    pathproj, monkeypatch, command, expected
+):
+    (pathproj / "other.txt").write_text("OLD\n")
+    _git(pathproj, "add", "other.txt")
+    _git(pathproj, "commit", "-qm", "test: other")
+    (pathproj / "other.txt").write_text("GOOD\n")
+    _git(pathproj, "add", "other.txt")
+    (pathproj / "app.txt").write_text("GOOD\n")
+    set_config(pathproj, test_command="grep -q GOOD app.txt && grep -q GOOD other.txt")
+    assert run_gate(monkeypatch, pathproj, git_commit_event(pathproj, command)) == expected
+
+
+def test_a_commit_naming_a_file_deleted_on_disk_leaves_it_out(gitproj, monkeypatch):
+    (gitproj / "gone.txt").write_text("x\n")
+    _git(gitproj, "add", "gone.txt")
+    _git(gitproj, "commit", "-qm", "test: gone")
+    (gitproj / "gone.txt").unlink()
+    set_config(gitproj, test_command="test ! -e gone.txt")
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj, "git commit -m 'feat: x' gone.txt")) == 0
+    assert run_gate(monkeypatch, gitproj, git_commit_event(gitproj, "git commit -m 'feat: x'")) == 2
+
+
+def test_a_commit_naming_files_leaves_out_untracked_files_they_match(pathproj, monkeypatch):
+    (pathproj / "app.txt").write_text("GOOD\n")
+    (pathproj / "new.txt").write_text("new\n")  # untracked: git commit *.txt skips it
+    set_config(pathproj, test_command="grep -q GOOD app.txt && test ! -e new.txt")
+    event = git_commit_event(pathproj, "git commit -m 'feat: fix' '*.txt'")
+    assert run_gate(monkeypatch, pathproj, event) == 0
+
+
+def test_a_first_commit_naming_files_starts_from_nothing(tmp_path, monkeypatch):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    (tmp_path / "x.txt").write_text("BAD\n")
+    (tmp_path / "y.txt").write_text("y\n")
+    _git(tmp_path, "add", "x.txt", "y.txt")
+    (tmp_path / "x.txt").write_text("GOOD\n")
+    state.create(tmp_path)
+    state.approve(tmp_path, "spec")
+    state.approve(tmp_path, "plan")
+    set_config(tmp_path, test_command="grep -q GOOD x.txt && test ! -e y.txt")
+    event = git_commit_event(tmp_path, "git commit -m 'feat: x' x.txt")
+    assert run_gate(monkeypatch, tmp_path, event) == 0
+
+
+def test_a_commit_naming_files_in_a_project_subfolder(tmp_path, monkeypatch):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "config", "user.name", "t")
+    _git(tmp_path, "config", "user.email", "t@example.invalid")
+    proj = tmp_path / "apps" / "web"
+    proj.mkdir(parents=True)
+    (proj / "page.html").write_text("BAD\n")
+    _git(tmp_path, "add", "apps/web/page.html")
+    _git(tmp_path, "commit", "-qm", "init")
+    (proj / "page.html").write_text("GOOD\n")
+    state.create(proj)
+    state.approve(proj, "spec")
+    state.approve(proj, "plan")
+    set_config(proj, test_command="grep -q GOOD page.html")
+    assert run_gate(monkeypatch, proj, git_commit_event(proj, "git commit -m 'feat: x' page.html")) == 0
+    assert run_gate(monkeypatch, proj, git_commit_event(proj, "git commit -m 'feat: x'")) == 2
+
+
+@pytest.mark.parametrize(
+    "command,needle",
+    [
+        ("git commit -m 'feat: x' no-such-file", "no-such-file"),
+        ("git commit -a -m 'feat: x' app.txt", "-a"),
+        ("git commit --pathspec-from-file=list.txt -m 'feat: x'", "--pathspec-from-file"),
+    ],
+)
+def test_path_commits_the_gate_cannot_model_are_blocked_with_a_reason(
+    pathproj, monkeypatch, capsys, command, needle
+):
+    set_config(pathproj, test_command="exit 0")
+    assert run_gate(monkeypatch, pathproj, git_commit_event(pathproj, command)) == 2
+    assert needle in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "command,paths",
+    [
+        ("git commit -m 'feat: x'", []),
+        ("git commit -m 'feat: x' app.txt src/b.js", ["app.txt", "src/b.js"]),
+        ("git commit -m x -- -odd-name", ["-odd-name"]),
+        ("git commit -am x", []),
+        ("git commit -mx a.txt", ["a.txt"]),
+        ("git commit --message=x a.txt", ["a.txt"]),
+        ("git commit --message x a.txt", ["a.txt"]),
+        ("git commit -C HEAD a.txt", ["a.txt"]),
+        ("git commit --author=A --date now -m x a.txt", ["a.txt"]),
+        ("git commit -uno -m x", []),
+        ("git commit -m x 2>&1", []),
+        ("git commit -m x > log.txt", []),
+        ("git commit -m x && git push origin main", []),
+        ("git commit -m x; git log a.txt", []),
+        ("git commit -m x | tail -1", []),
+        ("git commit -F - <<'EOF'\nfeat: x\nbody line\nEOF", []),
+        ("git commit -m \"$(cat <<'EOF'\nfeat: x\n\nbody\nEOF\n)\"", []),
+        ("git commit -m \"$(cat <<'EOF'\nfeat: x\nEOF\n)\" a.txt", ["a.txt"]),
+        ("git add a.txt && git commit -m x b.txt", ["b.txt"]),
+        ("git -C sub commit -m x a.txt", ["a.txt"]),
+    ],
+)
+def test_commit_paths_are_read_from_the_command(command, paths):
+    assert test_gate.commit_args(command)["paths"] == paths
+
+
+@pytest.mark.parametrize(
+    "command,mode",
+    [
+        ("git commit -m x a.txt", "only"),
+        ("git commit -o -m x a.txt", "only"),
+        ("git commit -i -m x a.txt", "include"),
+        ("git commit --include -m x a.txt", "include"),
+        ("git commit -im x a.txt", "include"),
+        ("git commit -uno -m x a.txt", "only"),  # -u takes "no"; it is not -o
+    ],
+)
+def test_commit_path_mode_is_read_from_the_command(command, mode):
+    assert test_gate.commit_args(command)["mode"] == mode
 
 
 def test_project_in_a_subfolder_of_the_repo_runs_tests_in_that_subfolder(tmp_path, monkeypatch):
