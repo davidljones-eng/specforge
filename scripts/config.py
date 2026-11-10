@@ -16,6 +16,9 @@ DEFAULT_CONFIG = {
     # it with the AC-IDs of done tasks plus the current task, so each task can go
     # red -> green on its own. Placeholders: {ac_regex}, {pytest_k}.
     "test_filter": None,
+    # With test_filter set, a task's code is blocked until red.py has seen that
+    # task's tests fail (M4). false gives M3 without it.
+    "red_first": True,
 }
 
 FILTER_PLACEHOLDERS = ("{ac_regex}", "{pytest_k}")
@@ -100,4 +103,6 @@ def load(project_dir) -> dict:
             "inserts them already quoted, so extra quotes become part of the pattern, which "
             "then matches no test. Write e.g. node --test --test-name-pattern {ac_regex}"
         )
+    if not isinstance(cfg["red_first"], bool):
+        raise ConfigError("red_first must be true or false")
     return cfg

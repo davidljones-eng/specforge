@@ -148,6 +148,7 @@ Hooks read it and block with a clear reason on stderr:
 | Edits to `.spec/state.json` | Always blocked. Approvals go through `/specforge:approve`. Shell commands that write to it are blocked too, on a best-effort basis. |
 | `git commit` | Once both approvals are in, blocked while the test suite fails. The suite runs on **exactly what the commit would contain** (staged files, plus any `git add` in the same command, plus tracked changes for `commit -a`; for `git commit <paths>`, the named tracked files as they are on disk, as git does), in a temporary copy, so unstaged or untracked files on disk cannot make a commit pass. Commits whose message starts with `test:` are let through, so failing tests (RED) can be committed. |
 | Spec changes | Editing `.spec/spec.md` after approval bumps `spec_version` and resets both approvals. |
+| Red first (with `test_filter` set) | A task's code waits until its tests have been seen failing. Edits to source folders, and commits that change code, are blocked while the current task (the first unticked one in `plan.md`) lists AC-IDs and has no RED recorded. `scripts/red.py` records RED: it runs that task's tests on a temporary copy of `HEAD` and records the task in `state.json` (`"red": {"T4": "<commit>"}`) only if they fail. It refuses when they pass, when no test ran, or when a test isn't committed. Tasks with no AC-IDs need no RED. Approving the plan clears the records. `"red_first": false` turns this off. |
 
 Everything else is allowed, including everything under `.spec/`. A project with no `.spec/` folder is left alone. If the state or config file is unreadable, or a hook script fails, the hook blocks rather than guessing.
 
@@ -162,7 +163,8 @@ Optional `.spec/config.json`:
   "test_command": "make test",
   "commit_gate_scope": "commit",
   "test_env_links": [".venv", "node_modules"],
-  "test_filter": "pytest -q -k {pytest_k}"
+  "test_filter": "pytest -q -k {pytest_k}",
+  "red_first": true
 }
 ```
 
@@ -172,6 +174,7 @@ Optional `.spec/config.json`:
 - `commit_gate_scope`: `commit` (default) runs the commit gate on a temporary copy of exactly what is being committed. `worktree` runs it in the project folder instead, which is faster for slow suites but lets uncommitted files on disk make a commit pass.
 - `test_env_links`: untracked paths the tests need, such as a virtualenv or installed packages. Each one that exists is linked into the temporary copy. Default `.venv`, `venv`, `node_modules`. Paths must stay inside the project.
 - `test_filter`: optional. A command that runs only some tests, so each task can go red, then green, on its own even though the plan phase wrote tests for every task up front. When set, the commit gate runs it for the ACs of the ticked tasks in `plan.md` plus the current (first unticked) task, and runs the full `test_command` once every task is ticked. Placeholders, inserted already shell-quoted, so don't put quotes around them (a config that does is rejected): `{ac_regex}`, a regex such as `^(?:AC-1|AC-2)\b` for runners that filter by test name (`node --test --test-name-pattern {ac_regex}`, `npx jest -t {ac_regex}`), and `{pytest_k}`, an expression such as `test_ac1_ or test_ac2_` for pytest (`pytest -q -k {pytest_k}`). A test belongs to the AC its name **starts with**, so `AC-9: sends as in AC-2` is an AC-9 test and doesn't run in AC-2's scope. Jest, Vitest and Mocha match the filter against the full name, including `describe` names, so with them either keep AC tests at the top level or start the `describe` name with the AC-ID. Before running, the gate checks that every AC in scope has a test whose name starts with it (documentation files such as `tests/CLAUDE.md` don't count). That check reads the files, so it can't tell whether the runner actually ran those tests: `node --test`, Jest, Vitest and Mocha all exit 0 when the filter matches nothing. So after a filtered run passes, the gate reads the runner's summary, and blocks the commit if it shows no test ran. This works for `node --test` with its default, `spec` or `tap` reporter, Jest, Vitest and Mocha. pytest exits 5 when `-k` selects nothing, which already blocks. For other runners or reporters, only the file check applies. The current task joins the scope only when the commit changes code. A commit that changes only docs or `.spec/` files is checked against the done tasks, so the spec and plan can be committed before the current task's tests exist.
+- `red_first`: `true` (default) blocks a task's code until `red.py` has seen its tests fail, but only when `test_filter` is set (see [Gates](#gates)). A task's AC-IDs are the ones in the parentheses after its ID in `plan.md` (`T13 (M4, AC-16): …`). `false` keeps the per-task test scope without the red-first check. Set it before running `/specforge:spec`.
 
 ## Example session
 
@@ -223,7 +226,8 @@ Claude: review.md written: AC-1..AC-6 all pass, no gaps.
 
 ## Limitations
 
-- **TDD order is mostly instructions.** `/specforge:build` and the `test-writer` agent tell Claude to go red, green, refactor, and hooks block commits while tests fail. Nothing stops Claude from writing code and its test in one go. `/specforge:review` checks the git history and reports any task whose `test:` commit does not come before its `feat:` commit, but it reports, it does not block.
+- **TDD order is mostly instructions.** `/specforge:build` and the `test-writer` agent tell Claude to go red, green, refactor, and hooks block commits while tests fail. Without `test_filter`, nothing stops Claude from writing code and its test in one go. With it, red first (see [Gates](#gates)) holds each task's code until its tests have been seen failing. `/specforge:review` checks the git history and reports any task whose `test:` commit does not come before its `feat:` commit, but it reports, it does not block.
+- **Red first checks that tests fail, not why.** `red.py` records RED when a task's tests fail at `HEAD`, so a test that fails from a typo still counts. Code written through Bash is caught when it's committed, not when it's written. Code outside `code_dirs` isn't covered, and a task whose tests pass before its code exists can only be ticked with no code change, which the review should question.
 - **A `test:` commit can contain anything.** The prefix only skips the test run. The review step is where misuse shows up.
 - **The commit gate reads the command from the project folder.** A `git add` in the same command as the commit is replayed into a temporary index, and paths named in `git commit <paths>` (with `-o`/`--only`, `-i`/`--include` or neither) are matched as git would from the project folder. A `cd` or `git -C <dir>` before them is not followed, and `--pathspec-from-file` is blocked, so stage first and commit separately when it matters. The real index is never changed by the gate.
 - **The Bash guard for `state.json` is best effort.** Hooks cannot reliably parse every shell command. Someone determined could write to the file by a route the pattern does not recognize, or run `state.py approve` through Bash. `/specforge:approve` cannot be invoked by the model, but the underlying script is a normal Python file.
@@ -249,6 +253,6 @@ commands/         spec, plan, build, review, status, approve
 agents/           spec-reviewer, test-writer, code-reviewer
 skills/           spec-writing (SKILL.md and templates)
 hooks/hooks.json  gate wiring
-scripts/          state.py, config.py, gate_check.py, test_gate.py
+scripts/          state.py, config.py, gate_check.py, test_gate.py, red.py
 tests/            structure/ and scripts/
 ```
