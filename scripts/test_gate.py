@@ -409,6 +409,36 @@ def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
     return False
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_NODE_SUMMARY = re.compile(r"^(?:# |\u2139 )tests \d+\s*$", re.M)
+# Under the filter, every test node runs, or the suite around it, has a name
+# that starts with an AC-ID. When nothing matched, node lists only the files.
+_NODE_AC_RESULT = re.compile(r"^\s*(?:(?:not )?ok \d+ - |[\u2714\u2716\ufe63] )AC-\d+\b", re.M)
+_JEST_SUMMARY = re.compile(r"^Tests:\s+(.*\btotal)\s*$", re.M)
+_VITEST_SUMMARY = re.compile(r"^\s*Tests\s{2,}(.*\(\d+\))\s*$", re.M)
+_MOCHA_PASSING = re.compile(r"^\s*(\d+) passing\b", re.M)
+_RAN = re.compile(r"(\d+) (?:passed|failed)")
+
+
+def tests_ran(output: str):
+    """Did the runner run any test? True, False, or None for unknown output.
+
+    Reads the summaries of node --test (tap and spec reporters), Jest, Vitest
+    and Mocha. All of them exit 0 when a name filter matches nothing. pytest
+    exits 5 instead, so it needs no help here.
+    """
+    text = _ANSI.sub("", output)
+    counts = []
+    if _NODE_SUMMARY.search(text):
+        counts.append(len(_NODE_AC_RESULT.findall(text)))
+    for summary in (*_JEST_SUMMARY.findall(text), *_VITEST_SUMMARY.findall(text)):
+        counts.append(sum(int(n) for n in _RAN.findall(summary)))
+    counts.extend(int(n) for n in _MOCHA_PASSING.findall(text))
+    if not counts:
+        return None
+    return any(counts)
+
+
 def touches_code(paths, cfg) -> bool:
     """True if any non-doc path is inside a code folder (and not a test folder)."""
     for path in paths:
@@ -503,6 +533,15 @@ def evaluate(event, project_dir):
         if temp_root is not None:
             shutil.rmtree(temp_root, ignore_errors=True)
     if result.returncode == 0:
+        if scope and tests_ran(result.stdout + result.stderr) is False:
+            return (
+                f"specforge: commit blocked. The test filter ran no tests for "
+                f"{', '.join(scope)}: {test_command}\n"
+                f"{_tail(result.stdout + result.stderr)}\n"
+                "Tests named after these ACs exist, but the runner didn't run any of them. "
+                "Check that it loads the files they are in, and (Jest, Vitest, Mocha) that "
+                "they aren't inside a describe whose name doesn't start with the AC-ID."
+            )
         return None
     if result.returncode == 127:
         return f"specforge: commit blocked. Test runner not found (exit 127): {test_command}"
