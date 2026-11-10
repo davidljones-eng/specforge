@@ -250,3 +250,32 @@ def test_spec_writer_does_not_cut_acs_to_meet_the_budget(root):
     _, body, low = load(root, "spec")
     step = next(l for l in body.splitlines() if "specforge:spec-reviewer" in l).lower()
     assert "budget" in step and "merge" in step and "user" in step
+
+
+# ---------- importing SPEC+ (M9) ----------
+
+def test_spec_takes_from_files(root):
+    meta, body, _ = load(root, "spec")
+    assert "--from <file>" in meta["argument-hint"]
+    assert "--from" in body
+
+
+def test_spec_copies_from_files_with_the_import_script(root):
+    # M9-AC1: a script copies them, not the model
+    _, body, _ = load(root, "spec")
+    step = next(l for l in body.splitlines() if "verbatim" in l and ".spec/source.md" in l)
+    assert "${CLAUDE_PLUGIN_ROOT}/scripts/import_source.py" in step
+    assert "source_fidelity" in step
+
+
+def test_spec_points_to_the_spec_plus_mapping(root):
+    # M9-AC4
+    _, body, _ = load(root, "spec")
+    assert "Importing SPEC+" in body
+
+
+def test_spec_fills_the_root_claude_md_constraints(root):
+    # M9-AC3
+    _, body, _ = load(root, "spec")
+    step = next(l for l in body.splitlines() if "templates/root-CLAUDE.md" in l)
+    assert "Constraints" in step and "E4" in step

@@ -117,3 +117,9 @@ def test_troubleshooting_section(readme):
     low = section(readme, "troubleshooting").lower()
     for needle in ("/plugin", "errors", "claude plugin validate", "/reload-plugins", "python3"):
         assert needle in low, needle
+
+
+def test_readme_explains_importing_spec_plus(readme):
+    # M9
+    assert "--from" in section(readme, "commands")
+    assert "import_source.py" in readme

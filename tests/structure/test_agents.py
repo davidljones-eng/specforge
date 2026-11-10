@@ -153,3 +153,11 @@ def test_test_writer_must_not_peek_at_or_write_implementation(root):
 def test_test_writer_names_tests_after_ac_ids(root):
     _, _, low = load(root, "test-writer")
     assert "name" in low and "ac-id" in low
+
+
+def test_spec_reviewer_blocks_uncovered_source_checks(root):
+    # M9-AC2
+    _, body, _ = load(root, "spec-reviewer")
+    check = next(l for l in body.splitlines() if l.startswith("10. "))
+    assert "Uncovered checks" in check and "spec_size.py" in check
+    assert "**blocking**" in check

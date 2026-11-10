@@ -63,7 +63,8 @@ def test_the_line_shows_checks_acs_budget_and_breakdown(tmp_path):
     line = spec_size.summary_line(spec_size.measure(project(tmp_path)))
     assert line == (
         "3 source checks → 6 ACs (budget 15). "
-        "C1: 2, C2: 2, C3: 0, C9 (not in the source): 1, no C-ID: 2."
+        "C1: 2, C2: 2, C3: 0, C9 (not in the source): 1, no C-ID: 2. "
+        "Uncovered checks: C3."
     )
 
 
@@ -132,3 +133,36 @@ def test_only_c_ids_in_an_id_table_are_source_checks(tmp_path):
     # v1's source mentions "`C7`" in prose, as a future gap, not as a check
     source = SOURCE + "\nA new gap would be recorded as `C7` plus a task.\n\n| ID | What |\n|---|---|\n| E1 | an artifact |\n"
     assert spec_size.measure(project(tmp_path, source=source))["checks"] == ["C1", "C2", "C3"]
+
+
+# ---------- uncovered checks (M9-AC2) ----------
+
+UNCOVERED_SPEC = """## Scope
+- C3 is mentioned here, which doesn't count.
+
+## Out of Scope
+- C2 is left for later.
+
+## Acceptance Criteria
+- AC-1 [C1]: a
+"""
+
+
+def test_a_check_with_no_ac_and_no_out_of_scope_entry_is_uncovered(tmp_path):
+    m = spec_size.measure(project(tmp_path, spec=UNCOVERED_SPEC))
+    assert m["uncovered"] == ["C3"]
+    line = spec_size.summary_line(m)
+    assert "C2: 0 (out of scope)" in line and "C3: 0" in line
+    assert "Uncovered checks: C3." in line
+
+
+def test_every_check_covered_says_nothing_about_coverage(tmp_path):
+    spec = SPEC + "- AC-7 [C3]: now covered.\n"
+    m = spec_size.measure(project(tmp_path, spec=spec))
+    assert m["uncovered"] == []
+    assert "Uncovered" not in spec_size.summary_line(m)
+
+
+def test_uncovered_comes_before_over_budget(tmp_path):
+    line = spec_size.summary_line(spec_size.measure(project(tmp_path, config={"ac_budget": 4})))
+    assert line.endswith("Uncovered checks: C3. Over budget by 2.")
