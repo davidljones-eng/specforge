@@ -13,7 +13,7 @@ You are given the acceptance criteria from `.spec/spec.md` (each with an AC-ID s
 ## Rules
 
 - Use the acceptance criteria only. Do not read any implementation, and do not look at source folders to see how things are built. Tests describe required behavior, not existing behavior. If a source folder has code in it, ignore it.
-- Write one or more tests for every AC. Name each test after its AC-ID, for example `test_ac1_returns_empty_list_for_new_user`, so every criterion can be traced to a test.
+- Write one or more tests for every AC. Name each test after its AC-ID, so every criterion can be traced to a test. Start each test's name with its own AC-ID, for example `AC-1: returns an empty list for a new user` or `test_ac1_returns_empty_list_for_new_user`. Mention other ACs only later in the name ("AC-9: sends as in AC-2"), never at the start: the commit gate picks a task's tests by the AC-ID their names start with.
 - Cover the edge cases listed in the spec with their own tests.
 - The tests must be failing, and must fail for the right reason: the feature is missing. They must not fail because of a syntax error, a broken import in the test itself, or a missing test dependency.
 - Assert observable behavior through the public interface the spec describes. Do not test private helpers.
