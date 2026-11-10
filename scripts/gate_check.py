@@ -2,8 +2,8 @@
 """Hook script that enforces specforge's approval gates.
 
 PreToolUse (default): exit 0 to allow, exit 2 with a reason on stderr to block.
-Bash commands that would approve are blocked: only approve_hook.py records an
-approval, from a prompt the user submits (M5).
+Bash commands and Skill calls that would approve or unapprove are blocked: only
+approve_hook.py changes an approval, from a prompt the user submits (M5, M6).
 With test_filter set, code for the current task also waits until red.py has
 seen that task's tests fail (M4, red_first).
 PostToolUse (--post): after spec.md changes post-approval, bump the spec version
@@ -34,11 +34,17 @@ _WRITE_HINT = re.compile(
 )
 _HARMLESS_REDIRECT = re.compile(r"\d*>&\d*-?|\d*>\s*/dev/null")
 
-# M5: approvals are recorded only by approve_hook.py, from a prompt the user
-# submits. Quotes and backslashes are dropped first, so st"ate".py still matches.
+# M5, M6: approvals are recorded and withdrawn only by approve_hook.py, from a
+# prompt the user submits. Quotes and backslashes are dropped first, so
+# st"ate".py still matches.
 _STATE_MODULE = re.compile(r"state\.py|\bimport\s+state\b|\bfrom\s+state\s+import\b")
-_APPROVE = re.compile(r"\bapprove\b")
-_APPROVE_COMMAND = re.compile(r"specforge:approve\b")
+_APPROVE = re.compile(r"\b(?:un)?approve\b")
+_APPROVE_COMMAND = re.compile(r"specforge:(?:un)?approve\b")
+_APPROVAL_SKILLS = ("specforge:approve", "specforge:unapprove")
+_ONLY_THE_USER = (
+    "specforge: only the user can approve or withdraw an approval. It's recorded when the "
+    "user submits /specforge:approve spec|plan or /specforge:unapprove spec|plan"
+)
 
 
 def classify(rel_parts, cfg) -> str:
@@ -72,30 +78,28 @@ def _evaluate_bash(event, project: Path):
         return None
     bare = re.sub(r"[\"'\\]", "", command)
     if _APPROVE_COMMAND.search(bare) or (_STATE_MODULE.search(bare) and _APPROVE.search(bare)):
-        return (
-            "specforge: only the user can approve. Approvals are recorded when the user "
-            "submits /specforge:approve spec|plan; ask them to run it."
-        )
+        return f"{_ONLY_THE_USER}; ask them to run it."
     if "state.json" not in command:
         return None
     if _WRITE_HINT.search(_HARMLESS_REDIRECT.sub("", command)):
         return (
             "specforge: .spec/state.json cannot be modified through Bash. "
-            "Use /specforge:approve spec|plan to record an approval."
+            "Use /specforge:approve spec|plan to record an approval, or "
+            "/specforge:unapprove spec|plan to withdraw one."
         )
     return None
 
 
 def _evaluate_skill(event):
-    """Block the model loading /specforge:approve, which disable-model-invocation
-    does not stop when the user asks for it. Only a prompt the user submits
-    records an approval, so loading it would only confuse."""
+    """Block the model loading /specforge:approve or /specforge:unapprove, which
+    disable-model-invocation does not stop when the user asks for it. Only a
+    prompt the user submits changes an approval, so loading one would only confuse."""
     tool_input = event.get("tool_input")
     name = tool_input.get("skill") if isinstance(tool_input, dict) else None
-    if isinstance(name, str) and name.lstrip("/") == "specforge:approve":
+    if isinstance(name, str) and name.lstrip("/") in _APPROVAL_SKILLS:
         return (
-            "specforge: only the user can approve. Ask the user to type "
-            "/specforge:approve spec|plan themselves; it does nothing when you run it."
+            f"{_ONLY_THE_USER}. Ask the user to type /{name.lstrip('/')} spec|plan themselves; "
+            "it does nothing when you run it."
         )
     return None
 
@@ -124,7 +128,8 @@ def evaluate(event, project_dir):
     if parts == (".spec", "state.json"):
         return (
             "specforge: .spec/state.json cannot be edited directly. "
-            "Use /specforge:approve spec|plan to record an approval."
+            "Use /specforge:approve spec|plan to record an approval, or "
+            "/specforge:unapprove spec|plan to withdraw one."
         )
     if parts[0] == ".spec":
         return None

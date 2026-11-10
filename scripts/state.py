@@ -140,6 +140,19 @@ def approve(project_dir, target) -> dict:
     raise ValueError("approve target must be 'spec' or 'plan'")
 
 
+def unapprove(project_dir, target) -> dict:
+    """Withdraw an approval, moving the phase back. Only approve_hook.py calls
+    this outside tests (M6). The spec version stays: the spec didn't change."""
+    if target not in ("spec", "plan"):
+        raise ValueError("unapprove target must be 'spec' or 'plan'")
+    data = read(project_dir)
+    if not data[f"{target}_approved"]:
+        raise ValueError(f"the {target} is not approved")
+    if target == "plan":
+        return update(project_dir, plan_approved=False, phase="plan")
+    return update(project_dir, spec_approved=False, plan_approved=False, phase="spec")
+
+
 def red_tasks(data) -> dict:
     """Task ID -> commit for the tasks whose tests red.py saw failing."""
     return dict(data.get("red", {}))

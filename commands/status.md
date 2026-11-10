@@ -4,7 +4,7 @@ description: Show the specforge phase, approvals, spec version and pending items
 
 # /specforge:status
 
-This command is read-only. Do not modify any file, run any `set-*`, `approve` or `bump` command, or change git state.
+This command is read-only. Do not modify any file, run any `set-*`, `approve`, `unapprove` or `bump` command, or change git state.
 
 ## Steps
 
@@ -26,5 +26,6 @@ This command is read-only. Do not modify any file, run any `set-*`, `approve` or
    - Unchecked tasks in `.spec/plan.md` (count them, and name the next one).
    - Acceptance criteria in `.spec/spec.md` with no matching test (search the test folders for each AC-ID).
    - `.spec/review.md` missing once all tasks are done: run `/specforge:review`.
+   - If an approval is in place, mention that the user can withdraw it with `/specforge:unapprove plan` (or `spec`) without editing anything.
 
 5. End with a single line naming the next command the user should run.
