@@ -184,6 +184,20 @@ def test_approve_takes_spec_or_plan(root):
     assert "state.py" in body and "approve" in body
 
 
+def test_approve_does_not_record_the_approval_itself(root):
+    # M5-AC4: the UserPromptSubmit hook records it
+    import re
+    _, body, low = load(root, "approve")
+    assert not re.search(r"state\.py\"?\s+approve", body)
+    assert "hook" in low and "never" in low
+
+
+def test_approve_says_when_the_approval_was_not_recorded(root):
+    _, _, low = load(root, "approve")
+    assert "not recorded" in low
+    assert "state.py\" get" in load(root, "approve")[1]
+
+
 def test_approve_validates_target_and_prerequisites(root):
     _, _, low = load(root, "approve")
     assert "spec.md" in low and "plan.md" in low

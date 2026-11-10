@@ -9,7 +9,7 @@ import state
 import test_gate
 
 PLUGIN_ROOT_VAR = "${CLAUDE_PLUGIN_ROOT}"
-KNOWN_EVENTS = {"PreToolUse", "PostToolUse"}
+KNOWN_EVENTS = {"PreToolUse", "PostToolUse", "UserPromptSubmit"}
 
 
 @pytest.fixture(scope="module")
@@ -88,6 +88,19 @@ def test_post_edit_hook_runs_gate_check_in_post_mode(hooks_file):
     assert "--post" in hook["args"]
 
 
+def test_approvals_are_recorded_by_a_user_prompt_hook(hooks_file):
+    # M5: fires only on prompts a person submits
+    ((matcher, hook),) = find(hooks_file, "UserPromptSubmit", "approve_hook.py")
+    assert matcher == "" and "if" not in hook
+
+
+def test_the_prompt_hook_does_not_block_every_prompt_when_it_fails(hooks_file):
+    # A crash must not lock the user out of the session; the script blocks
+    # failed approvals itself, and a failure records nothing.
+    ((_, hook),) = find(hooks_file, "UserPromptSubmit", "approve_hook.py")
+    assert hook.get("onFailure") != "block"
+
+
 def test_pre_hooks_do_not_use_if_filters_that_could_miss_commits(hooks_file):
     for event, _, hook in all_hooks(hooks_file):
         if event == "PreToolUse":
@@ -144,6 +157,19 @@ def test_commit_hook_blocks_failing_tests_when_run_as_a_real_process(hooks_file,
     assert run_hook(hook, root, tmp_path, event).returncode == 2
     event["tool_input"]["command"] = "git commit -m 'test: x'"
     assert run_hook(hook, root, tmp_path, event).returncode == 0
+
+
+def test_prompt_hook_records_approval_when_run_as_a_real_process(hooks_file, root, tmp_path):
+    state.create(tmp_path)
+    (tmp_path / ".spec" / "spec.md").write_text("- AC-1: x\n")
+    ((_, hook),) = find(hooks_file, "UserPromptSubmit", "approve_hook.py")
+    event = {"hook_event_name": "UserPromptSubmit", "prompt": "/specforge:approve plan",
+             "cwd": str(tmp_path)}
+    refused = run_hook(hook, root, tmp_path, event)
+    assert refused.returncode == 0 and json.loads(refused.stdout)["decision"] == "block"
+    event["prompt"] = "/specforge:approve spec"
+    assert run_hook(hook, root, tmp_path, event).returncode == 0
+    assert state.read(tmp_path)["spec_approved"] is True
 
 
 def test_post_hook_bumps_version_when_run_as_a_real_process(hooks_file, root, tmp_path):

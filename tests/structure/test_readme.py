@@ -116,3 +116,10 @@ def test_troubleshooting_section(readme):
     low = section(readme, "troubleshooting").lower()
     for needle in ("/plugin", "errors", "claude plugin validate", "/reload-plugins", "python3"):
         assert needle in low, needle
+
+
+def test_readme_explains_that_a_hook_records_approvals(readme):
+    # M5
+    gates = section(readme, "gates")
+    assert "UserPromptSubmit" in gates and "approve_hook.py" in readme
+    assert "run `state.py approve` through Bash" not in readme

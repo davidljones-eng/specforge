@@ -238,24 +238,20 @@ def test_cli_init_with_mode(proj):
     assert state.read(proj)["build_mode"] == "auto"
 
 
-def test_cli_approve_spec_then_plan(proj):
+@pytest.mark.parametrize("target", ["spec", "plan"])
+def test_cli_has_no_approve_command(proj, capsys, target):
+    # M5-AC2: only the approval hook records approvals
     run(proj, "init")
-    assert run(proj, "approve", "spec") == 0
-    assert run(proj, "approve", "plan") == 0
+    with pytest.raises(SystemExit) as exit_info:
+        run(proj, "approve", target)
+    assert exit_info.value.code != 0
     saved = state.read(proj)
-    assert saved["spec_approved"] and saved["plan_approved"]
-
-
-def test_cli_approve_plan_without_spec_fails_with_reason(proj, capsys):
-    run(proj, "init")
-    capsys.readouterr()
-    assert run(proj, "approve", "plan") == 1
-    assert "spec" in capsys.readouterr().err.lower()
+    assert not saved["spec_approved"] and not saved["plan_approved"]
 
 
 def test_cli_bump(proj):
     run(proj, "init")
-    run(proj, "approve", "spec")
+    state.approve(proj, "spec")
     assert run(proj, "bump") == 0
     assert state.read(proj)["spec_version"] == 2
 
