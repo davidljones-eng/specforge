@@ -44,7 +44,9 @@ def test_skill_explains_ac_ids(skill_dir):
 
 # ---------- spec.md ----------
 
-SPEC_SECTIONS = ["goal", "scope", "out of scope", "acceptance criteria", "edge cases"]
+# "change log": seen in a real --from run (M9), the writer filled only the
+# template's sections, so the mapping's I -> change log row was dropped.
+SPEC_SECTIONS = ["goal", "scope", "out of scope", "acceptance criteria", "edge cases", "change log"]
 
 
 @pytest.mark.parametrize("title", SPEC_SECTIONS)
