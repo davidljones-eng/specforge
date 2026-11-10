@@ -23,6 +23,9 @@ DEFAULT_CONFIG = {
     # With test_filter set, a task's code is blocked until red.py has seen that
     # task's tests fail (M4). false gives M3 without it.
     "red_first": True,
+    # More ACs than this makes spec-reviewer suggest splitting the feature or
+    # merging ACs (M8). null turns the suggestion off; spec_size.py still counts.
+    "ac_budget": 15,
 }
 
 FILTER_PLACEHOLDERS = ("{ac_regex}", "{pytest_k}")
@@ -111,4 +114,7 @@ def load(project_dir) -> dict:
         raise ConfigError("source_fidelity must be true or false")
     if not isinstance(cfg["red_first"], bool):
         raise ConfigError("red_first must be true or false")
+    budget = cfg["ac_budget"]
+    if budget is not None and (isinstance(budget, bool) or not isinstance(budget, int) or budget < 1):
+        raise ConfigError("ac_budget must be a positive whole number, or null to turn it off")
     return cfg
