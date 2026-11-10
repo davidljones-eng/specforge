@@ -31,3 +31,19 @@ Bad: `The API should be fast and handle errors well.` (not observable, not testa
 - Edge cases cover empty input, invalid input, duplicates, limits and failures.
 - Plan tasks reference the AC-IDs they satisfy. Every AC maps to at least one task and one test.
 - Review lists every AC with its code location, its test and a pass/fail status.
+
+## Importing SPEC+
+
+When the source is a SPEC+ document (from `/specforge:spec --from <file>` or pasted in), map its parts this way. Don't improvise a different mapping.
+
+| SPEC+ | SpecForge |
+|---|---|
+| S | Goal |
+| P table | Scope: the interface, kept as a table |
+| Constraints, and E4 + escalation triggers | `spec.md` Scope or Out of Scope, and the root `CLAUDE.md` Constraints section, word for word |
+| E1 | Edge Cases, and ACs for the ones that matter |
+| E2 / E3 | Scope: the state machine and the error path |
+| C table | At least one AC per check, each tagged `[Cn]`, for example `- AC-4 [C2]: ...`. A check the spec leaves out goes in Out of Scope with its C-ID and the reason. |
+| I | The `Version:` line, plus a Change log section |
+
+Only the IDs in the C table are checks. A C-ID mentioned elsewhere, such as an example in I, is not. If SPEC Lite came with it, its exact strings win (see the source-fidelity check).
