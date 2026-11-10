@@ -170,6 +170,13 @@ def test_status_is_read_only(root):
     assert "read-only" in low or "do not modify" in low
 
 
+def test_status_checks_the_claude_code_version_first(root):
+    # M1: shown even in a project with no specforge state yet
+    _, body, _ = load(root, "status")
+    assert "scripts/version_check.py" in body
+    assert body.index("version_check.py") < body.index("state.py")
+
+
 # ---------- /specforge:approve ----------
 
 def test_approve_cannot_be_invoked_by_the_model(root):

@@ -116,3 +116,9 @@ def test_troubleshooting_section(readme):
     low = section(readme, "troubleshooting").lower()
     for needle in ("/plugin", "errors", "claude plugin validate", "/reload-plugins", "python3"):
         assert needle in low, needle
+
+
+def test_install_says_how_to_check_the_claude_code_version(readme):
+    # M1: the install steps point at the version warning
+    install = section(readme, "install")
+    assert "2.1.295" in install and "/specforge:status" in install
