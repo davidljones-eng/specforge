@@ -2,6 +2,8 @@
 """Hook script that enforces specforge's approval gates.
 
 PreToolUse (default): exit 0 to allow, exit 2 with a reason on stderr to block.
+With test_filter set, code for the current task also waits until red.py has
+seen that task's tests fail (M4, red_first).
 PostToolUse (--post): after spec.md changes post-approval, bump the spec version
 and reset approvals.
 """
@@ -14,6 +16,7 @@ from pathlib import Path
 
 import config
 import state
+import test_gate
 
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit")
 
@@ -127,6 +130,10 @@ def evaluate(event, project_dir):
             f"specforge: blocked edit to {rel}. The plan is not approved yet. "
             "Review .spec/plan.md, then run /specforge:approve plan."
         )
+    if needs == NEED_BOTH:
+        reason = test_gate.red_block_reason(project, cfg, current)
+        if reason:
+            return f"specforge: blocked edit to {rel}. {reason}"
     return None
 
 

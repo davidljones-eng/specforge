@@ -43,7 +43,9 @@ _GIT_ADD = re.compile(r"^git(?:\s+-[cC]\s+\S+)*\s+add(?![\w-])")
 _COMMIT_OPTS_WITH_VALUE = set("mFcCt")  # short options whose value is the next token
 
 
-_TASK_LINE = re.compile(r"^\s*[-*]\s*\[( |x|X)\]\s*T\d+\b(?P<rest>.*)$")
+_TASK_LINE = re.compile(r"^\s*[-*]\s*\[( |x|X)\]\s*(?P<id>T\d+)\b(?P<rest>.*)$")
+_OWN_ACS = re.compile(r"^\s*\(([^)]*)\)")
+RED_SCRIPT = Path(__file__).resolve().parent / "red.py"
 _AC_ID = re.compile(r"\bAC-\d+\b")
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__"}
 _MAX_SCAN_BYTES = 2_000_000
@@ -258,6 +260,44 @@ def _stage_named_paths(project: Path, env, args, has_head):
         )
 
 
+def _link_env(project: Path, run_dir: Path, links):
+    for link in links:
+        source, target = project / link, run_dir / link
+        if source.exists() and not target.exists() and not target.is_symlink():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to(source.resolve(), target_is_directory=source.is_dir())
+
+
+def build_head_tree(project: Path, links):
+    """Export the files committed at HEAD into a temporary directory.
+
+    Returns (temp_root, run_dir). The caller must remove temp_root.
+    """
+    temp_root = Path(tempfile.mkdtemp(prefix="specforge-red-"))
+    try:
+        top = _git(project, "rev-parse", "--show-toplevel")
+        prefix = _git(project, "rev-parse", "--show-prefix")
+        if top.returncode or prefix.returncode:
+            raise CommitTreeError("could not read the git repository")
+        repo_top = Path(top.stdout.strip())
+        env = dict(os.environ, GIT_INDEX_FILE=str(temp_root / "index"))
+        result = _git(repo_top, "read-tree", "HEAD", env=env)
+        if result.returncode:
+            raise CommitTreeError(f"could not read HEAD: {_tail(result.stderr)}")
+        tree = temp_root / "tree"
+        tree.mkdir()
+        result = _git(repo_top, "checkout-index", "-a", f"--prefix={tree}/", env=env)
+        if result.returncode:
+            raise CommitTreeError(f"could not export HEAD: {_tail(result.stderr)}")
+        run_dir = tree / prefix.stdout.strip()
+        run_dir.mkdir(parents=True, exist_ok=True)
+        _link_env(project, run_dir, links)
+        return temp_root, run_dir
+    except BaseException:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        raise
+
+
 def build_commit_tree(project: Path, command: str, links):
     """Export what `command` would commit into a temporary directory.
 
@@ -324,15 +364,38 @@ def build_commit_tree(project: Path, command: str, links):
 
         run_dir = tree / prefix.stdout.strip()
         run_dir.mkdir(parents=True, exist_ok=True)
-        for link in links:
-            source, target = project / link, run_dir / link
-            if source.exists() and not target.exists() and not target.is_symlink():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.symlink_to(source.resolve(), target_is_directory=source.is_dir())
+        _link_env(project, run_dir, links)
         return temp_root, run_dir, changed
     except BaseException:
         shutil.rmtree(temp_root, ignore_errors=True)
         raise
+
+
+def _task_acs(rest: str):
+    """A task's own AC-IDs: those in the parentheses right after its ID
+    ("T13 (M4, AC-16): ... the AC-1 state" -> AC-16). With no parentheses,
+    every AC-ID on the line."""
+    own = _OWN_ACS.match(rest)
+    ids = _AC_ID.findall(own.group(1) if own else rest)
+    return list(dict.fromkeys(ids))
+
+
+def plan_tasks(project):
+    """[(task_id, done, ac_ids)] from .spec/plan.md, in order; [] without a plan."""
+    plan = Path(project) / ".spec" / "plan.md"
+    if not plan.is_file():
+        return []
+    tasks = []
+    for line in plan.read_text(errors="replace").splitlines():
+        match = _TASK_LINE.match(line)
+        if match:
+            tasks.append((match.group("id"), match.group(1) != " ", _task_acs(match.group("rest"))))
+    return tasks
+
+
+def current_task(project):
+    """(task_id, ac_ids) of the first unticked task, or None."""
+    return next(((tid, acs) for tid, done, acs in plan_tasks(project) if not done), None)
 
 
 def acs_in_scope(project, include_current=True):
@@ -341,22 +404,40 @@ def acs_in_scope(project, include_current=True):
     None means "run the whole suite": there is no plan, no task list, or every
     task is done. An empty list means there is nothing to test yet.
     """
-    plan = Path(project) / ".spec" / "plan.md"
-    if not plan.is_file():
+    tasks = plan_tasks(project)
+    if not tasks or all(done for _, done, _ in tasks):
         return None
-    tasks = []
-    for line in plan.read_text(errors="replace").splitlines():
-        match = _TASK_LINE.match(line)
-        if match:
-            tasks.append((match.group(1) != " ", _AC_ID.findall(match.group("rest"))))
-    if not tasks or all(done for done, _ in tasks):
-        return None
-    first_open = next(i for i, (done, _) in enumerate(tasks) if not done)
+    first_open = next(i for i, (_, done, _) in enumerate(tasks) if not done)
     ids = []
-    for i, (done, acs) in enumerate(tasks):
+    for i, (_, done, acs) in enumerate(tasks):
         if done or (include_current and i == first_open):
             ids.extend(a for a in acs if a not in ids)
     return ids
+
+
+def red_block_reason(project, cfg, current):
+    """Why the current task's code is blocked by red-first (M4), or None."""
+    if not (cfg["test_filter"] and cfg["red_first"]):
+        return None
+    task = current_task(project)
+    if task is None or not task[1]:
+        return None  # no open task, or one with no AC-IDs (setup, manual)
+    task_id, acs = task
+    if task_id in state.red_tasks(current):
+        return None
+    return (
+        f"Task {task_id} has no failing test recorded. Commit a failing test for "
+        f"{', '.join(acs)} with a `test:` prefix, then run "
+        f"`python3 \"{RED_SCRIPT}\"`, which records RED once those tests fail at HEAD."
+    )
+
+
+def filter_command(template, ids):
+    return (
+        template
+        .replace("{ac_regex}", shlex.quote(ac_regex(ids)))
+        .replace("{pytest_k}", shlex.quote(pytest_k(ids)))
+    )
 
 
 def ac_regex(ids):
@@ -418,6 +499,7 @@ _JEST_SUMMARY = re.compile(r"^Tests:\s+(.*\btotal)\s*$", re.M)
 _VITEST_SUMMARY = re.compile(r"^\s*Tests\s{2,}(.*\(\d+\))\s*$", re.M)
 _MOCHA_PASSING = re.compile(r"^\s*(\d+) passing\b", re.M)
 _RAN = re.compile(r"(\d+) (?:passed|failed)")
+_NO_TESTS = re.compile(r"^No test(?:s| files) found\b", re.M)  # Jest, Vitest
 
 
 def tests_ran(output: str):
@@ -434,6 +516,8 @@ def tests_ran(output: str):
     for summary in (*_JEST_SUMMARY.findall(text), *_VITEST_SUMMARY.findall(text)):
         counts.append(sum(int(n) for n in _RAN.findall(summary)))
     counts.extend(int(n) for n in _MOCHA_PASSING.findall(text))
+    if _NO_TESTS.search(text):
+        counts.append(0)
     if not counts:
         return None
     return any(counts)
@@ -513,11 +597,11 @@ def evaluate(event, project_dir):
                     f"{', '.join(cfg['test_dirs'])}. Every AC of a done or current task needs "
                     "a test named after its AC-ID before code for it can be committed."
                 )
-            test_command = (
-                cfg["test_filter"]
-                .replace("{ac_regex}", shlex.quote(ac_regex(scope)))
-                .replace("{pytest_k}", shlex.quote(pytest_k(scope)))
-            )
+            if changed is not None and code_change:
+                reason = red_block_reason(project, cfg, current)
+                if reason:
+                    return f"specforge: commit blocked. {reason}"
+            test_command = filter_command(cfg["test_filter"], scope)
             notes.append(
                 f"Only the tests for done tasks and the current task were run: {', '.join(scope)}."
             )

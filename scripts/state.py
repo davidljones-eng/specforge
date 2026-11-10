@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -17,6 +18,12 @@ DEFAULT_STATE = {
     "spec_version": 1,
     "build_mode": "checkpoint",
 }
+
+# Optional keys, absent until first used, so a state.json from before them
+# still reads. "red" maps a task ID to the commit where red.py saw its tests
+# fail (M4); only red.py writes it.
+OPTIONAL_KEYS = ("red",)
+_TASK_ID = re.compile(r"^T\d+$")
 
 
 class StateMissingError(Exception):
@@ -39,8 +46,12 @@ def _validate(data):
     """Raise ValueError if `data` is not a valid state dict."""
     if not isinstance(data, dict):
         raise ValueError("state must be a JSON object")
-    if set(data) != set(DEFAULT_STATE):
-        raise ValueError(f"state keys must be exactly {sorted(DEFAULT_STATE)}")
+    keys = set(data)
+    if not set(DEFAULT_STATE) <= keys or keys - set(DEFAULT_STATE) - set(OPTIONAL_KEYS):
+        raise ValueError(
+            f"state keys must be exactly {sorted(DEFAULT_STATE)}, plus optionally "
+            f"{list(OPTIONAL_KEYS)}"
+        )
     if data["phase"] not in PHASES:
         raise ValueError(f"phase must be one of {PHASES}")
     if data["build_mode"] not in BUILD_MODES:
@@ -53,6 +64,13 @@ def _validate(data):
         raise ValueError("spec_version must be an integer >= 1")
     if data["plan_approved"] and not data["spec_approved"]:
         raise ValueError("plan cannot be approved before the spec")
+    if "red" in data:
+        red = data["red"]
+        if not isinstance(red, dict) or not all(
+            isinstance(k, str) and _TASK_ID.match(k) and isinstance(v, str) and v
+            for k, v in red.items()
+        ):
+            raise ValueError("red must map task IDs like T4 to commit IDs")
 
 
 def _write(project_dir, data):
@@ -95,7 +113,7 @@ def read(project_dir) -> dict:
 
 def update(project_dir, **changes) -> dict:
     data = read(project_dir)
-    unknown = set(changes) - set(DEFAULT_STATE)
+    unknown = set(changes) - set(DEFAULT_STATE) - set(OPTIONAL_KEYS)
     if unknown:
         raise ValueError(f"unknown state keys: {sorted(unknown)}")
     data.update(changes)
@@ -110,8 +128,25 @@ def approve(project_dir, target) -> dict:
     if target == "plan":
         if not read(project_dir)["spec_approved"]:
             raise ValueError("the spec must be approved before the plan")
-        return update(project_dir, plan_approved=True)
+        # A newly approved plan may number its tasks differently, so earlier RED
+        # records no longer apply.
+        data = read(project_dir)
+        data.pop("red", None)
+        data["plan_approved"] = True
+        _validate(data)
+        _write(project_dir, data)
+        return data
     raise ValueError("approve target must be 'spec' or 'plan'")
+
+
+def red_tasks(data) -> dict:
+    """Task ID -> commit for the tasks whose tests red.py saw failing."""
+    return dict(data.get("red", {}))
+
+
+def record_red(project_dir, task_id, commit) -> dict:
+    """Record that `task_id`'s tests failed at `commit`. Used only by red.py."""
+    return update(project_dir, red={**red_tasks(read(project_dir)), task_id: commit})
 
 
 def bump_spec_version(project_dir) -> dict:

@@ -20,6 +20,9 @@ DEFAULT_CONFIG = {
     # spec-reviewer checks the spec against it. false gives the original spec
     # phase. The command and agent prompts read this from config.json.
     "source_fidelity": True,
+    # With test_filter set, a task's code is blocked until red.py has seen that
+    # task's tests fail (M4). false gives M3 without it.
+    "red_first": True,
 }
 
 FILTER_PLACEHOLDERS = ("{ac_regex}", "{pytest_k}")
@@ -106,4 +109,6 @@ def load(project_dir) -> dict:
         )
     if not isinstance(cfg["source_fidelity"], bool):
         raise ConfigError("source_fidelity must be true or false")
+    if not isinstance(cfg["red_first"], bool):
+        raise ConfigError("red_first must be true or false")
     return cfg
