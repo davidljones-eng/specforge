@@ -89,6 +89,18 @@ def test_spec_reviewer_is_given_the_source(root):
     review_step = next(l for l in body.splitlines() if "spec-reviewer" in l and "subagent" in l)
     assert ".spec/source.md" in review_step
 
+
+def test_spec_can_turn_source_fidelity_off(root):
+    # "source_fidelity": false gives the original spec phase: no source.md,
+    # no copy-exactly rule, and the reviewer is not given a source
+    _, body, _ = load(root, "spec")
+    assert '"source_fidelity": false' in body
+    assert body.index(".spec/config.json") < body.index("verbatim")
+    save_step = next(l for l in body.splitlines() if "verbatim" in l and ".spec/source.md" in l)
+    assert "source_fidelity" in save_step and "skip" in save_step.lower()
+    review_step = next(l for l in body.splitlines() if "spec-reviewer" in l and "subagent" in l)
+    assert "source_fidelity" in review_step
+
 # ---------- /specforge:plan ----------
 
 def test_plan_refuses_when_spec_not_approved(root):
