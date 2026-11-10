@@ -216,3 +216,12 @@ def test_approve_validates_target_and_prerequisites(root):
     assert "only" in low and "spec" in low and "plan" in low
     assert "refuse" in low
     assert "next" in low  # tells the user what to run next
+
+
+def test_spec_writer_carries_source_constraints_into_the_spec(root):
+    # M7-AC4: the constraint goes in spec.md, not only in requirement.md
+    _, body, _ = load(root, "spec")
+    step = next(l for l in body.splitlines() if "templates/spec.md" in l)
+    low = step.lower()
+    assert "constraint" in low and "requirement.md" in low
+    assert "scope" in low and "out of scope" in low

@@ -90,6 +90,21 @@ def test_spec_reviewer_checks_fidelity_to_the_source(root):
         assert needle in low, needle
 
 
+def test_spec_reviewer_lists_source_fidelity_as_check_8(root):
+    _, body, _ = load(root, "spec-reviewer")
+    assert any(l.startswith("8. **Fidelity to the source.**") for l in body.splitlines())
+
+
+def test_spec_reviewer_blocks_a_constraint_kept_only_in_the_requirement(root):
+    # M7-AC4: in a re-check on Track C v2, only 1 run in 10 flagged that spec.md
+    # had dropped "no runtime dependencies", which only requirement.md kept.
+    _, body, _ = load(root, "spec-reviewer")
+    check = next(l for l in body.splitlines() if "Fidelity to the source" in l).lower()
+    assert "constraint" in check and "requirement.md" in check
+    assert "scope" in check and "out of scope" in check
+    assert "dropped" in check and "blocking" in check
+
+
 def test_spec_reviewer_skips_fidelity_when_it_is_turned_off(root):
     _, body, _ = load(root, "spec-reviewer")
     check = next(l for l in body.splitlines() if "Fidelity to the source" in l)
