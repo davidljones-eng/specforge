@@ -1,4 +1,7 @@
 import io
+import os
+import shlex
+import shutil
 import re
 from pathlib import Path
 import json
@@ -519,7 +522,7 @@ def test_ac_regex_matches_whole_ids_only():
 
 
 def test_pytest_k_expression():
-    assert test_gate.pytest_k(["AC-1", "AC-18"]) == "ac1_ or ac18_"
+    assert test_gate.pytest_k(["AC-1", "AC-18"]) == "test_ac1_ or test_ac18_"
 
 
 def test_filter_runs_only_the_tests_in_scope(proj, monkeypatch):
@@ -543,7 +546,7 @@ def test_filter_with_pytest_placeholder(proj, monkeypatch):
         "test_filter": "printf '%s' {pytest_k} > got.txt; exit 0",
     }))
     assert run_gate(monkeypatch, proj, commit_event(proj)) == 0
-    assert (proj / "got.txt").read_text() == "ac18_ or ac23_ or ac24_ or ac4_"
+    assert (proj / "got.txt").read_text() == "test_ac18_ or test_ac23_ or test_ac24_ or test_ac4_"
 
 
 def test_filter_failure_still_blocks(proj, monkeypatch, capsys):
@@ -595,7 +598,7 @@ def test_without_a_filter_the_whole_suite_runs(proj, monkeypatch):
     assert (proj / "ran.marker").exists()
 
 
-# ---------- scope fixes found in the Track C v2 run ----------
+# ---------- scope fixes found in Track C Stage 10 ----------
 
 def test_ac_mentions_in_docs_inside_test_folders_do_not_count_as_tests(proj, monkeypatch, capsys):
     write_plan(proj)
@@ -691,3 +694,91 @@ def test_docs_inside_code_folders_are_not_code_changes(scoped_gitproj, tmp_path_
 def test_touches_code(paths, expected):
     cfg = {"code_dirs": ["src", "app", "lib"], "test_dirs": ["tests"]}
     assert test_gate.touches_code(paths, cfg) is expected
+
+
+# ---------- a test belongs to the AC its name starts with (Track C v2 re-run) ----------
+# A test named "AC-9: sends as in AC-2" is an AC-9 test. Matching AC-2 anywhere
+# in the name pulled it into T2's scope, so later tasks were green before their turn.
+
+def test_ac_regex_matches_an_id_only_at_the_start_of_a_name():
+    pattern = re.compile(test_gate.ac_regex(["AC-2", "AC-18"]))
+    assert pattern.search("AC-2: sends")
+    assert pattern.search("AC-18 (a): state")
+    assert not pattern.search("AC-9: sends the message as in AC-2")
+    assert not pattern.search("AC-15: after a failure, a new message is sent as in AC-18")
+    assert not pattern.search("rejects bad input (AC-2)")
+    assert not pattern.search("AC-20: other")
+
+
+def test_pytest_k_does_not_match_a_mention_inside_another_tests_name():
+    expr = test_gate.pytest_k(["AC-2"])
+    # pytest -k is a case-insensitive substring match on the test's name
+    assert expr.lower() in "test_ac2_sends"
+    assert expr.lower() not in "test_ac9_sends_as_in_ac2_reply"
+
+
+def test_a_mention_of_an_ac_inside_another_test_is_not_a_test_for_it(proj, monkeypatch, capsys):
+    write_plan(proj)
+    (proj / "tests").mkdir()
+    (proj / "tests" / "x.test.js").write_text(
+        'test("AC-18: x", () => {});\n'
+        'test(`AC-23: x`, () => {});\n'
+        "test('AC-4: x', () => {});\n"
+        'test("AC-23: behaves as in AC-24", () => {});\n'
+        "// AC-24 is covered elsewhere\n"
+    )
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": "exit 0 #{ac_regex}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    assert "AC-24" in capsys.readouterr().err
+
+
+def test_a_pytest_name_mentioning_another_ac_is_not_a_test_for_it(proj, monkeypatch, capsys):
+    write_plan(proj)
+    (proj / "tests").mkdir()
+    (proj / "tests" / "test_x.py").write_text(
+        "def test_ac18_a(): pass\ndef test_ac23_like_ac24_b(): pass\ndef test_ac4_d(): pass\n"
+    )
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": "exit 0 #{pytest_k}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    assert "AC-24" in capsys.readouterr().err
+
+
+def test_a_template_literal_name_counts_as_a_test(proj, monkeypatch):
+    write_plan(proj)
+    (proj / "tests").mkdir()
+    (proj / "tests" / "x.test.js").write_text(
+        "".join(f"test(`{i}: x`, () => {{}});\n" for i in ("AC-18", "AC-23", "AC-24", "AC-4"))
+    )
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 1", "test_filter": "exit 0 #{ac_regex}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 0
+
+
+NODE_NAMES_TEST = """
+import { test, describe } from 'node:test';
+import { appendFileSync } from 'node:fs';
+const ran = (name) => () => appendFileSync(process.env.RAN, name + '\\n');
+test('AC-2: top level', ran('AC-2: top level'));
+test('AC-9: sends as in AC-2', ran('AC-9: sends as in AC-2'));
+test('AC-20: twenty', ran('AC-20: twenty'));
+test('rejects bad input (AC-2)', ran('rejects bad input (AC-2)'));
+describe('controller', () => {
+  test('AC-2: nested in a suite', ran('AC-2: nested in a suite'));
+  test('AC-9: nested, as in AC-2', ran('AC-9: nested, as in AC-2'));
+});
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_node_runs_only_tests_whose_names_start_with_the_ids(tmp_path):
+    (tmp_path / "names.test.mjs").write_text(NODE_NAMES_TEST)
+    ran = tmp_path / "ran.txt"
+    command = "node --test --test-name-pattern " + shlex.quote(test_gate.ac_regex(["AC-2"]))
+    _sp.run(command, shell=True, cwd=tmp_path, env={**os.environ, "RAN": str(ran)},
+            capture_output=True, timeout=60)
+    assert sorted(ran.read_text().splitlines()) == ["AC-2: nested in a suite", "AC-2: top level"]
