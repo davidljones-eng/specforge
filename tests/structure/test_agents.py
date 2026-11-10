@@ -105,6 +105,16 @@ def test_spec_reviewer_blocks_a_constraint_kept_only_in_the_requirement(root):
     assert "dropped" in check and "blocking" in check
 
 
+def test_spec_reviewer_suggests_but_never_blocks_on_size(root):
+    # M8-AC2
+    _, body, _ = load(root, "spec-reviewer")
+    check = next(l for l in body.splitlines() if l.startswith("9. "))
+    low = check.lower()
+    assert "spec_size.py" in check and "budget" in low
+    assert "suggestion" in low and "never" in low and "blocking" in low
+    assert "restate" in low
+
+
 def test_spec_reviewer_skips_fidelity_when_it_is_turned_off(root):
     _, body, _ = load(root, "spec-reviewer")
     check = next(l for l in body.splitlines() if "Fidelity to the source" in l)
