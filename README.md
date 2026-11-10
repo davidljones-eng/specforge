@@ -167,7 +167,7 @@ Optional `.spec/config.json`:
 - `code_dirs`: folder names (not paths) that count as source code. Default `src`, `app`, `lib`.
 - `test_dirs`: folder names that count as tests. Default `tests`. A path inside both, such as `app/tests/x.py`, counts as a test.
 - `test_command`: how to run the suite. If unset, specforge looks for `pytest`, then `npm test`, then `flutter test`. If it finds none, or the runner is not installed, commits are blocked with a message telling you to set it.
-- `source_fidelity`: `true` (default) makes `/specforge:spec` save your description and answers word for word to `.spec/source.md`, copy its quoted strings and numbers into the spec exactly, and have `spec-reviewer` treat any change to them as blocking. `false` gives the original spec phase: no `source.md` and no fidelity check. Set it before running `/specforge:spec`.
+- `source_fidelity`: `true` (default) makes `/specforge:spec` save your description and answers word for word to `.spec/source.md`, copy its quoted strings and numbers into the spec exactly, carry its constraints (stack, dependencies, storage) into the spec's Scope or Out of Scope, and have `spec-reviewer` treat any change to them, or a constraint kept only in `requirement.md`, as blocking. `false` gives the original spec phase: no `source.md` and no fidelity check. Set it before running `/specforge:spec`.
 
 ## Example session
 
