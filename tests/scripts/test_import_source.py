@@ -45,6 +45,12 @@ def test_several_files_are_copied_in_the_order_given(proj):
     assert text.index(PLUS) < text.index(LITE)
 
 
+def test_windows_line_endings_are_kept(proj):
+    (proj / "crlf.md").write_bytes(b"line one\r\nline two\r\n")
+    assert run(proj, "crlf.md") == 0
+    assert b"line one\r\nline two\r\n" in (proj / ".spec" / "source.md").read_bytes()
+
+
 def test_an_absolute_path_works(proj):
     assert run(proj, str(proj / "docs" / "01-lite.md")) == 0
     assert LITE in source(proj)
