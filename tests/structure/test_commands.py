@@ -292,3 +292,12 @@ def test_approval_commands_end_the_turn(root, name):
     _, body, _ = load(root, name)
     last = body.strip().splitlines()[-1]
     assert last.split(". ", 1)[-1].startswith("Stop.")
+
+
+def test_spec_writer_carries_source_constraints_into_the_spec(root):
+    # M7-AC4: the constraint goes in spec.md, not only in requirement.md
+    _, body, _ = load(root, "spec")
+    step = next(l for l in body.splitlines() if "templates/spec.md" in l)
+    low = step.lower()
+    assert "constraint" in low and "requirement.md" in low
+    assert "scope" in low and "out of scope" in low
