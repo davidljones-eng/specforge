@@ -15,7 +15,7 @@ Read `.spec/spec.md`, `.spec/requirement.md` and, if it exists, `.spec/source.md
 5. **Edge cases are covered.** Empty input, invalid input, duplicates, limits and failure modes are addressed or explicitly excluded. Each edge case that matters has an acceptance criterion.
 6. **Requirements are covered.** Every requirement in `requirement.md` is satisfied by at least one criterion, and no criterion introduces something nobody asked for.
 7. **Nothing is ambiguous.** Flag terms that two engineers could read differently, and open questions that block testing.
-8. **Fidelity to the source.** If `.spec/source.md` exists, every quoted string in it (error messages, labels, placeholders, button text) and every number or limit (sizes, counts, timeouts) appears unchanged in `spec.md` wherever the spec covers that behavior. A reworded, re-punctuated or dropped string, or a changed number, is a **blocking** issue: quote the source text and the spec text side by side. Constraints in the source must not be silently dropped either.
+8. **Fidelity to the source.** Skip this check if `.spec/config.json` sets `"source_fidelity": false`. Otherwise, if `.spec/source.md` exists, every quoted string in it (error messages, labels, placeholders, button text) and every number or limit (sizes, counts, timeouts) appears unchanged in `spec.md` wherever the spec covers that behavior. A reworded, re-punctuated or dropped string, or a changed number, is a **blocking** issue: quote the source text and the spec text side by side. Constraints in the source must not be silently dropped either.
 
 ## Output
 

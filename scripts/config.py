@@ -6,6 +6,10 @@ DEFAULT_CONFIG = {
     "code_dirs": ["src", "app", "lib"],
     "test_dirs": ["tests"],
     "test_command": None,
+    # The spec phase saves the description verbatim to .spec/source.md and
+    # spec-reviewer checks the spec against it. false gives the original spec
+    # phase. The command and agent prompts read this from config.json.
+    "source_fidelity": True,
 }
 
 
@@ -41,4 +45,6 @@ def load(project_dir) -> dict:
     cmd = cfg["test_command"]
     if cmd is not None and (not isinstance(cmd, str) or not cmd.strip()):
         raise ConfigError("test_command must be a non-empty string")
+    if not isinstance(cfg["source_fidelity"], bool):
+        raise ConfigError("source_fidelity must be true or false")
     return cfg
