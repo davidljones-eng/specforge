@@ -116,3 +116,19 @@ def test_main_without_a_spec_explains(tmp_path, capsys):
 def test_main_with_an_invalid_config_explains(tmp_path, capsys):
     assert spec_size.main(["--project-dir", str(project(tmp_path, config={"ac_budget": 0}))]) == 1
     assert "ac_budget" in capsys.readouterr().out
+
+
+# ---------- found on Track C v1's real spec ----------
+
+def test_tags_that_mix_c_ids_with_other_ids_count_their_c_ids(tmp_path):
+    # v1 tagged ACs like "[C2, E1]" and "[E4]"
+    spec = "- AC-1 [C2, E1]: a\n- AC-2 [E4]: b\n- AC-3 (C1, E2): c\n"
+    m = spec_size.measure(project(tmp_path, spec=spec))
+    assert m["per_check"] == {"C1": 1, "C2": 1, "C3": 0}
+    assert m["untagged"] == ["AC-2"]
+
+
+def test_only_c_ids_in_an_id_table_are_source_checks(tmp_path):
+    # v1's source mentions "`C7`" in prose, as a future gap, not as a check
+    source = SOURCE + "\nA new gap would be recorded as `C7` plus a task.\n\n| ID | What |\n|---|---|\n| E1 | an artifact |\n"
+    assert spec_size.measure(project(tmp_path, source=source))["checks"] == ["C1", "C2", "C3"]
