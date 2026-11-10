@@ -40,6 +40,8 @@ Do the steps in order. Enter slash commands one at a time: type one, press Enter
 
 4. **Reload.** In a session that was already open, run `/reload-plugins` (or restart Claude Code). Type `/specforge:` and you should see the six commands: `spec`, `plan`, `build`, `review`, `status` and `approve`.
 
+5. **Check your Claude Code version.** Run `/specforge:status`. If Claude Code is older than 2.1.295, it starts with a one-line warning: on those versions a hook script that crashes lets the action through instead of blocking it. Run `claude update` to fix that.
+
 To uninstall, run `claude plugin marketplace remove specforge-marketplace` in a shell. Because the marketplace is a local folder, edits you make to the plugin take effect on the next `/reload-plugins`.
 
 ## Usage step by step
@@ -221,7 +223,7 @@ Claude: review.md written: AC-1..AC-6 all pass, no gaps.
 - **A `test:` commit can contain anything.** The prefix only skips the test run. The review step is where misuse shows up.
 - **The Bash guard for `state.json` is best effort.** Hooks cannot reliably parse every shell command. Someone determined could write to the file by a route the pattern does not recognize, or run `state.py approve` through Bash. `/specforge:approve` cannot be invoked by the model, but the underlying script is a normal Python file.
 - **The commit gate starts after both approvals.** Before that, no source code can be written, and committing planning documents with failing tests would deadlock the plan phase.
-- **Hooks need Claude Code 2.1.295 or later** for `onFailure: block`. On older versions a crashing hook script does not block.
+- **Hooks need Claude Code 2.1.295 or later** for `onFailure: block`. On older versions a crashing hook script does not block. `/specforge:status` warns when it detects an older version. It reads the version from variables Claude Code sets but doesn't document, so if they change it says it couldn't tell rather than guessing.
 - `python3` must be on the PATH, and the test runner must be installed in the environment Claude runs commands in.
 
 ## Development
@@ -242,6 +244,6 @@ commands/         spec, plan, build, review, status, approve
 agents/           spec-reviewer, test-writer, code-reviewer
 skills/           spec-writing (SKILL.md and templates)
 hooks/hooks.json  gate wiring
-scripts/          state.py, config.py, gate_check.py, test_gate.py
+scripts/          state.py, config.py, gate_check.py, test_gate.py, version_check.py
 tests/            structure/ and scripts/
 ```
