@@ -142,3 +142,9 @@ def test_readme_explains_that_withdrawn_approvals_keep_code_commits_blocked(read
     gates = section(readme, "gates")
     assert "/specforge:unapprove" in gates
     assert "seven commands" in section(readme, "install")
+
+
+def test_readme_explains_importing_spec_plus(readme):
+    # M9
+    assert "--from" in section(readme, "commands")
+    assert "import_source.py" in readme

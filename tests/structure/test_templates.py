@@ -112,3 +112,18 @@ def test_root_claude_template_points_at_spec_files(templates):
     for ref in (".spec/spec.md", ".spec/plan.md", ".spec/state.json"):
         assert ref in text
     assert "red" in text.lower() and "green" in text.lower()
+
+
+def test_root_claude_template_has_a_constraints_section(templates):
+    # M9-AC3: the nearest thing SpecForge has to SPEC+'s shared constitution
+    assert "## Constraints" in read(templates / "root-CLAUDE.md")
+
+
+def test_skill_maps_spec_plus_to_specforge(skill_dir):
+    # M9-AC4: a fixed table, not the model's own reading
+    body = read(skill_dir / "SKILL.md")
+    assert "## Importing SPEC+" in body
+    section = body[body.index("## Importing SPEC+"):]
+    for row in ("| S |", "| P table |", "| E1 |", "| E2 / E3 |", "| C table |", "| I |", "Constraints"):
+        assert row in section, row
+    assert "[Cn]" in section and "CLAUDE.md" in section
