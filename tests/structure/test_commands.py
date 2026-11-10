@@ -250,3 +250,12 @@ def test_unapprove_explains_what_each_target_resets(root):
 def test_status_mentions_unapprove(root):
     _, body, _ = load(root, "status")
     assert "/specforge:unapprove" in body
+
+
+@pytest.mark.parametrize("name", ["approve", "unapprove"])
+def test_approval_commands_end_the_turn(root, name):
+    # Seen in a real session: after /specforge:approve plan, the model went on to
+    # make a commit it had offered earlier. Approving isn't an instruction to work.
+    _, body, _ = load(root, name)
+    last = body.strip().splitlines()[-1]
+    assert last.split(". ", 1)[-1].startswith("Stop.")
