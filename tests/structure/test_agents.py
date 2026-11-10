@@ -89,6 +89,12 @@ def test_spec_reviewer_checks_fidelity_to_the_source(root):
     for needle in ("quoted", "number", "unchanged", "blocking"):
         assert needle in low, needle
 
+
+def test_spec_reviewer_skips_fidelity_when_it_is_turned_off(root):
+    _, body, _ = load(root, "spec-reviewer")
+    check = next(l for l in body.splitlines() if "Fidelity to the source" in l)
+    assert '"source_fidelity": false' in check and "skip" in check.lower()
+
 def test_code_reviewer_maps_every_ac_with_locations(root):
     _, body, low = load(root, "code-reviewer")
     assert "every ac" in low
