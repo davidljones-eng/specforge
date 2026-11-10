@@ -222,6 +222,27 @@ def test_the_model_cannot_approve_through_bash(tmp_path, command):
     assert "only the user" in reason.lower() and "/specforge:approve" in reason
 
 
+def skill(proj, name, args=None):
+    tool_input = {"skill": name} if args is None else {"skill": name, "args": args}
+    return {"tool_name": "Skill", "tool_input": tool_input, "cwd": str(proj)}
+
+
+@pytest.mark.parametrize("name", ["specforge:approve", "/specforge:approve"])
+def test_the_model_cannot_load_the_approve_command(tmp_path, name):
+    # Seen in a real session: asked to "run /specforge:approve plan for me", the
+    # model loaded it through the Skill tool despite disable-model-invocation.
+    proj = make_project(tmp_path, spec=True)
+    reason = gate_check.evaluate(skill(proj, name, "plan"), proj)
+    assert reason is not None
+    assert "only the user" in reason.lower() and "type" in reason.lower()
+
+
+@pytest.mark.parametrize("name", ["specforge:status", "specforge:build", "approve", "other:approve"])
+def test_other_skills_are_allowed(tmp_path, name):
+    proj = make_project(tmp_path, spec=True)
+    assert not blocked(proj, skill(proj, name))
+
+
 def test_approving_through_bash_is_blocked_whatever_the_state(tmp_path):
     proj = make_project(tmp_path, spec=True, plan=True)
     assert blocked(proj, bash(proj, "python3 scripts/state.py approve plan"))
