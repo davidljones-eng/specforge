@@ -55,7 +55,8 @@ def test_gates_section_names_each_hook_behavior(readme):
 
 def test_configuration_documents_config_json_keys(readme):
     cfg = section(readme, "configuration")
-    for key in ("code_dirs", "test_dirs", "test_command", ".spec/config.json", "source_fidelity"):
+    for key in ("code_dirs", "test_dirs", "test_command", ".spec/config.json", "source_fidelity",
+                "ac_budget"):
         assert key in cfg
 
 

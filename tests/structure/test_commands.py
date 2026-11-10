@@ -225,3 +225,28 @@ def test_spec_writer_carries_source_constraints_into_the_spec(root):
     low = step.lower()
     assert "constraint" in low and "requirement.md" in low
     assert "scope" in low and "out of scope" in low
+
+
+# ---------- AC budget (M8) ----------
+
+def test_spec_measures_the_spec_before_the_review(root):
+    _, body, _ = load(root, "spec")
+    script = "${CLAUDE_PLUGIN_ROOT}/scripts/spec_size.py"
+    assert script in body
+    review = body.index("specforge:spec-reviewer")
+    assert body.index("templates/spec.md") < body.index(script) < review
+    step = next(l for l in body.splitlines() if "specforge:spec-reviewer" in l)
+    assert "spec_size.py" in step  # the reviewer gets the line
+
+
+def test_spec_shows_the_size_line_in_its_summary(root):
+    _, body, _ = load(root, "spec")
+    stop = next(l for l in body.splitlines() if l.lstrip().startswith("7. **Stop.**"))
+    assert "spec_size.py" in stop and "suggestion" in stop.lower()
+
+
+def test_spec_writer_does_not_cut_acs_to_meet_the_budget(root):
+    # M8-AC3: merging ACs or splitting the feature is the user's call
+    _, body, low = load(root, "spec")
+    step = next(l for l in body.splitlines() if "specforge:spec-reviewer" in l).lower()
+    assert "budget" in step and "merge" in step and "user" in step
