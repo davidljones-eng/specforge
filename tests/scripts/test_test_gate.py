@@ -849,6 +849,8 @@ MOCHA_SOME = "\n  Controller\n    ✔ AC-1: works\n\n  1 passing (3ms)\n"
         (VITEST_SOME, True),
         (MOCHA_NONE, False),
         (MOCHA_SOME, True),
+        ("No tests found, exiting with code 1\nRun with `--passWithNoTests` to exit with code 0\n", False),
+        ("No test files found, exiting with code 1\n", False),  # vitest
         ("", None),  # no runner recognised: nothing to judge by
         ("all good\n", None),
         ("....\n4 passed in 0.10s\n", None),  # pytest: exit 5 already blocks an empty selection
@@ -1008,6 +1010,7 @@ def test_a_code_commit_includes_the_current_task_once_its_tests_exist(
     (scoped_gitproj / "tests" / "two.test.js").write_text('test("AC-2: works", () => {});\n')
     (scoped_gitproj / "src" / "a.js").write_text("export const a = 2;\n")
     _git(scoped_gitproj, "add", "src", "tests")
+    state.record_red(scoped_gitproj, "T2", "abc1234")  # M4: T2's tests were seen failing
     assert run_gate(monkeypatch, scoped_gitproj, git_commit_event(scoped_gitproj)) == 0
     assert "AC-1" in out.read_text() and "AC-2" in out.read_text()
 
@@ -1132,3 +1135,101 @@ def test_node_runs_only_tests_whose_names_start_with_the_ids(tmp_path):
     _sp.run(command, shell=True, cwd=tmp_path, env={**os.environ, "RAN": str(ran)},
             capture_output=True, timeout=60)
     assert sorted(ran.read_text().splitlines()) == ["AC-2: nested in a suite", "AC-2: top level"]
+
+
+# ---------- a task's own ACs (M4-AC1) ----------
+
+@pytest.mark.parametrize(
+    "line,acs",
+    [
+        ("- [ ] T1 (M1, AC-1, AC-19): controller", ["AC-1", "AC-19"]),
+        ("- [x] T13 (M4, AC-16): `clearChat()` resets to the AC-1 state", ["AC-16"]),
+        ("- [ ] T16 (M5, manual check in Scope): page, see AC-3", []),
+        ("- [ ] T5 do AC-5 and AC-6", ["AC-5", "AC-6"]),  # no parentheses: every AC-ID counts
+        ("- [ ] T6: setup", []),
+    ],
+)
+def test_a_task_owns_the_ac_ids_in_the_parentheses_after_its_id(tmp_path, line, acs):
+    (tmp_path / ".spec").mkdir()
+    write_plan(tmp_path, f"## Tasks\n{line}\n")
+    assert [t[2] for t in test_gate.plan_tasks(tmp_path)] == [acs]
+
+
+def test_plan_tasks_lists_id_done_and_acs(tmp_path):
+    (tmp_path / ".spec").mkdir()
+    write_plan(tmp_path)
+    tasks = test_gate.plan_tasks(tmp_path)
+    assert tasks[:3] == [("T1", True, ["AC-18"]), ("T2", True, ["AC-23"]), ("T3", False, ["AC-24", "AC-4"])]
+
+
+def test_scope_leaves_out_acs_a_task_only_mentions(tmp_path):
+    (tmp_path / ".spec").mkdir()
+    write_plan(tmp_path, "## Tasks\n- [x] T1 (M1, AC-1): first\n- [ ] T2 (M1, AC-2): sends as in AC-9\n")
+    assert test_gate.acs_in_scope(tmp_path) == ["AC-1", "AC-2"]
+
+
+def test_current_task_is_the_first_open_one(tmp_path):
+    (tmp_path / ".spec").mkdir()
+    write_plan(tmp_path)
+    assert test_gate.current_task(tmp_path) == ("T3", ["AC-24", "AC-4"])
+    write_plan(tmp_path, PLAN.replace("[ ]", "[x]"))
+    assert test_gate.current_task(tmp_path) is None
+    (tmp_path / ".spec" / "plan.md").unlink()
+    assert test_gate.current_task(tmp_path) is None
+
+
+# ---------- the commit gate wants RED before a task's code (M4-AC6) ----------
+
+@pytest.fixture
+def red_gitproj(scoped_gitproj, tmp_path_factory, monkeypatch):
+    """T2 (AC-2) is current, its test exists, and a code change is staged."""
+    monkeypatch.setenv("OUT", str(tmp_path_factory.mktemp("o") / "got.txt"))
+    (scoped_gitproj / "tests" / "two.test.js").write_text('test("AC-2: works", () => {});\n')
+    _git(scoped_gitproj, "add", "tests")
+    _git(scoped_gitproj, "commit", "-qm", "test: T2")
+    (scoped_gitproj / "src" / "a.js").write_text("export const a = 2;\n")
+    _git(scoped_gitproj, "add", "src")
+    return scoped_gitproj
+
+
+def test_a_code_commit_without_red_for_the_current_task_is_blocked(red_gitproj, monkeypatch, capsys):
+    assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj)) == 2
+    err = capsys.readouterr().err
+    assert "T2" in err and "no failing test recorded" in err and "red.py" in err
+
+
+def test_a_code_commit_with_red_for_the_current_task_is_allowed(red_gitproj, monkeypatch):
+    state.record_red(red_gitproj, "T2", "abc1234")
+    assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj)) == 0
+
+
+def test_red_for_another_task_does_not_count(red_gitproj, monkeypatch):
+    state.record_red(red_gitproj, "T1", "abc1234")
+    assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj)) == 2
+
+
+def test_red_first_false_turns_the_commit_check_off(red_gitproj, monkeypatch):
+    set_config(red_gitproj, test_command="exit 1", red_first=False,
+               test_filter="printf '%s' {ac_regex} > \"$OUT\"; exit 0")
+    assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj)) == 0
+
+
+def test_without_a_test_filter_there_is_no_red_check(red_gitproj, monkeypatch):
+    set_config(red_gitproj, test_command="exit 0")
+    assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj)) == 0
+
+
+def test_a_commit_without_code_changes_needs_no_red(red_gitproj, monkeypatch):
+    _git(red_gitproj, "reset", "-q", "src")
+    (red_gitproj / "notes.md").write_text("x\n")
+    _git(red_gitproj, "add", "notes.md")
+    assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj, "git commit -m 'docs: x'")) == 0
+
+
+def test_a_test_commit_needs_no_red(red_gitproj, monkeypatch):
+    assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj, "git commit -m 'test: more'")) == 0
+
+
+def test_a_current_task_without_ac_ids_needs_no_red(red_gitproj, monkeypatch):
+    write_plan(red_gitproj, "## Tasks\n- [x] T1 (M1, AC-1): first\n- [ ] T2 (M1): set up the build\n")
+    assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj)) == 0

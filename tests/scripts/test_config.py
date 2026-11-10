@@ -19,6 +19,7 @@ def test_defaults_when_no_config_file(tmp_path):
         "test_env_links": [".venv", "venv", "node_modules"],
         "test_filter": None,
         "source_fidelity": True,
+        "red_first": True,
     }
 
 
@@ -158,5 +159,18 @@ def test_source_fidelity_accepts_true_or_false(tmp_path, value):
 @pytest.mark.parametrize("value", ["false", 0, 1, None, []])
 def test_source_fidelity_must_be_a_boolean(tmp_path, value):
     write(tmp_path, json.dumps({"source_fidelity": value}))
+    with pytest.raises(config.ConfigError):
+        config.load(tmp_path)
+
+
+# ---------- red first (M4) ----------
+
+def test_red_first_is_on_by_default(tmp_path):
+    assert config.load(tmp_path)["red_first"] is True
+
+
+@pytest.mark.parametrize("value", ["false", 0, None])
+def test_red_first_must_be_a_boolean(tmp_path, value):
+    write(tmp_path, json.dumps({"red_first": value}))
     with pytest.raises(config.ConfigError):
         config.load(tmp_path)

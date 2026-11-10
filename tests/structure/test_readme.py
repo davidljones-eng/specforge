@@ -55,7 +55,8 @@ def test_gates_section_names_each_hook_behavior(readme):
 
 def test_configuration_documents_config_json_keys(readme):
     cfg = section(readme, "configuration")
-    for key in ("code_dirs", "test_dirs", "test_command", ".spec/config.json", "source_fidelity"):
+    for key in ("code_dirs", "test_dirs", "test_command", ".spec/config.json", "source_fidelity",
+                "red_first"):
         assert key in cfg
 
 
@@ -122,3 +123,8 @@ def test_install_says_how_to_check_the_claude_code_version(readme):
     # M1: the install steps point at the version warning
     install = section(readme, "install")
     assert "2.1.295" in install and "/specforge:status" in install
+
+
+def test_readme_explains_red_first(readme):
+    assert "red.py" in readme
+    assert "red.py" in section(readme, "gates")

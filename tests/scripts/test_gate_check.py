@@ -363,3 +363,78 @@ def test_post_with_corrupt_state_does_not_crash(tmp_path, monkeypatch):
     (tmp_path / ".spec").mkdir()
     (tmp_path / ".spec" / "state.json").write_text("{bad")
     assert run_main(monkeypatch, tmp_path, edit(tmp_path, tmp_path / ".spec/spec.md"), "--post") == 0
+
+
+# ---------- the edit gate wants RED before a task's code (M4-AC5) ----------
+
+RED_PLAN = "## Tasks\n- [x] T1 (M1, AC-1): first\n- [ ] T2 (M1, AC-2, AC-3): second, as in AC-1\n- [ ] T3 (M2): setup\n"
+
+
+@pytest.fixture
+def red_proj(tmp_path):
+    proj = make_project(tmp_path, spec=True, plan=True)
+    (proj / ".spec" / "plan.md").write_text(RED_PLAN)
+    (proj / ".spec" / "config.json").write_text(
+        json.dumps({"test_filter": "node --test --test-name-pattern {ac_regex}"})
+    )
+    return proj
+
+
+def test_a_code_edit_without_red_for_the_current_task_is_blocked(red_proj):
+    reason = gate_check.evaluate(edit(red_proj, red_proj / "src" / "app.js"), red_proj)
+    assert reason and "T2" in reason and "no failing test recorded" in reason
+    assert "AC-2, AC-3" in reason and "AC-1" not in reason.replace("AC-1,", "")  # own ACs only
+    assert "red.py" in reason and "test:" in reason
+
+
+@pytest.mark.parametrize("tool", ["Edit", "Write", "MultiEdit"])
+def test_a_code_edit_with_red_for_the_current_task_is_allowed(red_proj, tool):
+    state.record_red(red_proj, "T2", "abc1234")
+    assert not blocked(red_proj, edit(red_proj, red_proj / "src" / "app.js", tool))
+
+
+@pytest.mark.parametrize("rel", ["tests/two.test.js", "src/CLAUDE.md", "README.md", ".spec/plan.md"])
+def test_non_code_edits_need_no_red(red_proj, rel):
+    assert not blocked(red_proj, edit(red_proj, red_proj / rel))
+
+
+def test_red_first_false_turns_the_edit_check_off(red_proj):
+    (red_proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_filter": "node --test --test-name-pattern {ac_regex}", "red_first": False,
+    }))
+    assert not blocked(red_proj, edit(red_proj, red_proj / "src" / "app.js"))
+
+
+def test_without_a_test_filter_code_edits_need_no_red(red_proj):
+    (red_proj / ".spec" / "config.json").unlink()
+    assert not blocked(red_proj, edit(red_proj, red_proj / "src" / "app.js"))
+
+
+@pytest.mark.parametrize(
+    "plan",
+    [
+        "## Tasks\n- [x] T1 (M1, AC-1): first\n- [ ] T3 (M2): setup\n",  # current task lists no AC-IDs
+        "## Tasks\n- [x] T1 (M1, AC-1): first\n- [x] T2 (M1, AC-2): second\n",  # every task ticked
+        None,  # no plan.md
+    ],
+)
+def test_no_red_is_needed_without_a_current_task_with_acs(red_proj, plan):
+    if plan is None:
+        (red_proj / ".spec" / "plan.md").unlink()
+    else:
+        (red_proj / ".spec" / "plan.md").write_text(plan)
+    assert not blocked(red_proj, edit(red_proj, red_proj / "src" / "app.js"))
+
+
+def test_ticking_a_task_moves_the_red_check_to_the_next_one(red_proj):
+    state.record_red(red_proj, "T2", "abc1234")
+    (red_proj / ".spec" / "plan.md").write_text(
+        RED_PLAN.replace("[ ] T2", "[x] T2").replace("T3 (M2): setup", "T3 (M2, AC-4): more")
+    )
+    reason = gate_check.evaluate(edit(red_proj, red_proj / "src" / "app.js"), red_proj)
+    assert reason and "T3" in reason and "AC-4" in reason
+
+
+def test_red_cannot_be_recorded_through_bash_edits_to_state(red_proj):
+    cmd = """python3 -c "import json;p='.spec/state.json';d=json.load(open(p));d['red']={'T2':'x'};json.dump(d,open(p,'w'))" """
+    assert blocked(red_proj, bash(red_proj, cmd))
