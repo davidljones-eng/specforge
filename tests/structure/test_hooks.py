@@ -94,6 +94,11 @@ def test_approvals_are_recorded_by_a_user_prompt_hook(hooks_file):
     assert matcher == "" and "if" not in hook
 
 
+def test_the_skill_tool_is_guarded_by_gate_check(hooks_file):
+    # the model can load /specforge:approve through the Skill tool (M5-AC3)
+    find(hooks_file, "PreToolUse", "gate_check.py", matcher="Skill")
+
+
 def test_the_prompt_hook_does_not_block_every_prompt_when_it_fails(hooks_file):
     # A crash must not lock the user out of the session; the script blocks
     # failed approvals itself, and a failure records nothing.

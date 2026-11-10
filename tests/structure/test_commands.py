@@ -228,6 +228,8 @@ def test_approve_does_not_record_the_approval_itself(root):
 def test_approve_says_when_the_approval_was_not_recorded(root):
     _, _, low = load(root, "approve")
     assert "not recorded" in low
+    # if the model loaded the command itself, the user has to type it
+    assert "type" in low and "yourself" in low
     assert "state.py\" get" in load(root, "approve")[1]
 
 
