@@ -541,6 +541,37 @@ def _tail(output: str) -> str:
     return "\n".join(lines)[-_TAIL_CHARS:]
 
 
+def unapproved_code_reason(project, command, current):
+    """With an approval missing, block a commit that changes code (M6-AC4).
+
+    The tests aren't run before both approvals, so the plan phase can commit
+    failing tests. That must not let code through once an approval has been
+    withdrawn, or reset by a spec edit, mid-build. The `test:` prefix doesn't
+    help here: the question is the approval, not the tests.
+    """
+    if not is_git_repo(project):
+        return None
+    try:
+        cfg = config.load(project)
+    except config.ConfigError as e:
+        return f"specforge: commit blocked. .spec/config.json is invalid ({e})."
+    try:
+        temp_root, _, changed = build_commit_tree(project, command, cfg["test_env_links"])
+    except CommitTreeError as e:
+        return f"specforge: commit blocked. {e}"
+    shutil.rmtree(temp_root, ignore_errors=True)
+    code = [p for p in changed if touches_code([p], cfg)]
+    if not code:
+        return None
+    missing = "plan" if current["spec_approved"] else "spec"
+    listed = ", ".join(code[:5]) + (", …" if len(code) > 5 else "")
+    return (
+        f"specforge: commit blocked. The {missing} is not approved, so code can't be "
+        f"committed ({listed}). Review .spec/{missing}.md; the user re-approves with "
+        f"/specforge:approve {missing}."
+    )
+
+
 def evaluate(event, project_dir):
     """Return None to allow the tool call, or a reason string to block it."""
     project = Path(project_dir).resolve()
@@ -548,16 +579,23 @@ def evaluate(event, project_dir):
         return None
     tool_input = event.get("tool_input")
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if not isinstance(command, str) or not is_commit(command) or only_test_commits(command):
+    if not isinstance(command, str) or not is_commit(command):
         return None
+    test_only = only_test_commits(command)
 
     try:
         current = state.read(project)
     except state.StateMissingError:
+        if test_only:
+            return None
         return "specforge: commit blocked. .spec/state.json is missing. Run /specforge:spec first."
     except state.StateCorruptError as e:
+        if test_only:
+            return None
         return f"specforge: commit blocked. .spec/state.json is corrupt ({e})."
     if not (current["spec_approved"] and current["plan_approved"]):
+        return unapproved_code_reason(project, command, current)
+    if test_only:
         return None
 
     try:

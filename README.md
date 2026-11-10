@@ -38,7 +38,7 @@ Do the steps in order. Enter slash commands one at a time: type one, press Enter
 
 3. **Check that it is installed.** From a shell, `claude plugin list` should show `specforge@specforge-marketplace` with `Status: enabled`.
 
-4. **Reload.** In a session that was already open, run `/reload-plugins` (or restart Claude Code). Type `/specforge:` and you should see the six commands: `spec`, `plan`, `build`, `review`, `status` and `approve`.
+4. **Reload.** In a session that was already open, run `/reload-plugins` (or restart Claude Code). Type `/specforge:` and you should see the seven commands: `spec`, `plan`, `build`, `review`, `status`, `approve` and `unapprove`.
 
 To uninstall, run `claude plugin marketplace remove specforge-marketplace` in a shell. Because the marketplace is a local folder, edits you make to the plugin take effect on the next `/reload-plugins`.
 
@@ -82,9 +82,11 @@ Do steps 1 and 2 once per project. From step 3 on, this is the loop for every fe
 
 11. **Check progress at any time** with `/specforge:status`. It shows the phase, approvals, spec version and what is pending.
 
-12. **Review.** When the build is done, run `/specforge:review`. Expect a fresh `code-reviewer` pass and `.spec/review.md` mapping every AC to its code, its test and a status, plus gaps and the full test output. Then it pushes the branch and opens a pull request. That needs a git remote and `gh`; without them Claude gives you the commands instead. It never merges.
+12. **Change your mind.** `/specforge:unapprove plan` withdraws the plan approval: the spec stays approved and the phase goes back to `plan`. `/specforge:unapprove spec` withdraws both. Nothing is edited and the spec version stays the same. Expect code edits, and commits that change code, to be blocked until you approve again.
 
-13. **Merge the pull request yourself** if you are happy with it.
+13. **Review.** When the build is done, run `/specforge:review`. Expect a fresh `code-reviewer` pass and `.spec/review.md` mapping every AC to its code, its test and a status, plus gaps and the full test output. Then it pushes the branch and opens a pull request. That needs a git remote and `gh`; without them Claude gives you the commands instead. It never merges.
+
+14. **Merge the pull request yourself** if you are happy with it.
 
 If you change `.spec/spec.md` after approving it, the spec version goes up and both approvals reset. Review the change, run `/specforge:approve spec` again, and re-run `/specforge:plan` if the plan needs to change. To start over completely, delete the `.spec` folder.
 
@@ -125,6 +127,7 @@ If `.spec/spec.md` changes after approval, the spec version goes up and both app
 | `/specforge:build [--mode strict\|checkpoint\|auto]` | Refuses unless spec and plan are approved. Builds on a feature branch with red, green, refactor per task. |
 | `/specforge:review` | Fresh `code-reviewer`, writes `review.md`, opens a PR. Never merges. |
 | `/specforge:status` | Read-only: phase, approvals, spec version, build mode, pending items. |
+| `/specforge:unapprove spec\|plan` | Withdraws your approval, without editing anything. `plan` keeps the spec approved; `spec` withdraws both. Only you can run it, through the same hook as `approve`. |
 | `/specforge:approve spec\|plan` | Records your approval. Only you can run it: a hook records the approval when you submit the command, and the model has no way to record one. |
 
 Build modes: `strict` pauses after every task, `checkpoint` (default) after each milestone, `auto` only before risky actions such as deleting files, changing dependencies, migrations, external calls or force pushes.
@@ -149,6 +152,7 @@ Hooks read it and block with a clear reason on stderr:
 | Approvals | Recorded only by a `UserPromptSubmit` hook (`scripts/approve_hook.py`), which Claude Code runs only on prompts you submit. When your prompt is `/specforge:approve spec` or `plan`, the hook checks it in code: the spec must exist and have AC-IDs, and the plan must exist, with the spec already approved. Then it records the approval, or refuses the prompt and shows you why. A prompt that only mentions approving changes nothing. `state.py` has no `approve` command, and shell commands that would approve (`state.py approve`, `import state`, or a nested `claude -p "/specforge:approve …"`) are blocked. So is the model loading `/specforge:approve` through the Skill tool, which `disable-model-invocation` doesn't stop when you ask Claude to run it. |
 | `git commit` | Once both approvals are in, blocked while the test suite fails. The suite runs on **exactly what the commit would contain** (staged files, plus any `git add` in the same command, plus tracked changes for `commit -a`; for `git commit <paths>`, the named tracked files as they are on disk, as git does), in a temporary copy, so unstaged or untracked files on disk cannot make a commit pass. Commits whose message starts with `test:` are let through, so failing tests (RED) can be committed. |
 | Spec changes | Editing `.spec/spec.md` after approval bumps `spec_version` and resets both approvals. |
+| Withdrawn approvals | `/specforge:unapprove spec\|plan` withdraws an approval through the approval hook. Without both approvals the commit gate doesn't run the tests, but it still blocks any commit that changes code (with or without `test:`), so withdrawing an approval, or a spec edit that resets them mid-build, stops code from landing. Commits of tests, docs and `.spec/` go through, so the plan phase can commit failing tests. |
 | Red first (with `test_filter` set) | A task's code waits until its tests have been seen failing. Edits to source folders, and commits that change code, are blocked while the current task (the first unticked one in `plan.md`) lists AC-IDs and has no RED recorded. `scripts/red.py` records RED: it runs that task's tests on a temporary copy of `HEAD` and records the task in `state.json` (`"red": {"T4": "<commit>"}`) only if they fail. It refuses when they pass, when no test ran, or when a test isn't committed. Tasks with no AC-IDs need no RED. Approving the plan clears the records. `"red_first": false` turns this off. |
 
 Everything else is allowed, including everything under `.spec/`. A project with no `.spec/` folder is left alone. If the state or config file is unreadable, or a hook script fails, the hook blocks rather than guessing.
@@ -198,6 +202,12 @@ Claude: Wrote .spec/plan.md: 2 milestones, 8 tasks. Created src/ and tests/ with
         test-writer created 9 failing tests (test_ac1_..., test_ac2_..., ...).
 > /specforge:approve plan
 Claude: Plan approved. Next: /specforge:build.
+> /specforge:unapprove plan
+Claude: Plan approval withdrawn; the spec is still approved and the phase is back to plan.
+> Split T4 into two tasks.
+Claude: Updated .spec/plan.md: 9 tasks. Review it, then run /specforge:approve plan.
+> /specforge:approve plan
+Claude: Plan approved. Next: /specforge:build.
 
 > /specforge:build --mode checkpoint
 Claude: Branch feature/todo-api. T1 RED: test fails as expected. test: commit.
@@ -232,7 +242,7 @@ Claude: review.md written: AC-1..AC-6 all pass, no gaps.
 - **A `test:` commit can contain anything.** The prefix only skips the test run. The review step is where misuse shows up.
 - **The commit gate reads the command from the project folder.** A `git add` in the same command as the commit is replayed into a temporary index, and paths named in `git commit <paths>` (with `-o`/`--only`, `-i`/`--include` or neither) are matched as git would from the project folder. A `cd` or `git -C <dir>` before them is not followed, and `--pathspec-from-file` is blocked, so stage first and commit separately when it matters. The real index is never changed by the gate.
 - **The Bash guards for `state.json` and approvals are best effort.** Hooks cannot reliably parse every shell command. A model with general shell access could still write the file by a route the patterns do not recognize. The plugin's own route is closed: only the approval hook records approvals, and it runs only on prompts you submit. A headless `claude -p "/specforge:approve spec"` counts as you, since you ran it.
-- **The commit gate starts after both approvals.** Before that, no source code can be written, and committing planning documents with failing tests would deadlock the plan phase.
+- **The commit gate runs the tests only after both approvals.** Running them earlier would deadlock the plan phase, which commits failing tests. Before that, it only blocks commits that change code. Outside a git repository there is nothing to check, so it doesn't.
 - **Hooks need Claude Code 2.1.295 or later** for `onFailure: block`. On older versions a crashing hook script does not block.
 - `python3` must be on the PATH, and the test runner must be installed in the environment Claude runs commands in.
 
@@ -250,7 +260,7 @@ Layout:
 
 ```
 .claude-plugin/   plugin.json, marketplace.json
-commands/         spec, plan, build, review, status, approve
+commands/         spec, plan, build, review, status, approve, unapprove
 agents/           spec-reviewer, test-writer, code-reviewer
 skills/           spec-writing (SKILL.md and templates)
 hooks/hooks.json  gate wiring

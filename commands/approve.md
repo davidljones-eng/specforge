@@ -19,3 +19,5 @@ This command records a human decision. The plugin's hook recorded it, or refused
 3. **plan**: if `plan_approved` is `true`, confirm: number of tasks and milestones in `.spec/plan.md`. Next: run `/specforge:build`.
 
 4. If the approval the user asked for is not `true`, say it was **not recorded**. If the user did not type `/specforge:approve` as their prompt (for example they asked you to approve and you loaded this command), that is why: only a prompt the user submits records an approval, so tell them: "Type `/specforge:approve <target>` yourself." Otherwise, the hook refuses a target that is not exactly `spec` or `plan`, a `.spec/spec.md` that is missing or has no AC-IDs, a missing `.spec/plan.md`, and a plan before the spec, and it shows the user the reason. If the user saw no reason, the plugin's hook may not have run: tell them to check that the plugin is enabled (`/hooks` lists its hooks) and run the command again. Do not record the approval any other way.
+
+5. Stop. Do not start or continue other work in this turn, even work you offered earlier: approving is not an instruction to build. The user runs the next command.

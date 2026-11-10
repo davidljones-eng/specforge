@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit hook that records approvals (M5).
+"""UserPromptSubmit hook that records approvals (M5) and withdraws them (M6).
 
 Claude Code runs this hook only for prompts a person submits, and passes the
 prompt as typed, before a slash command is expanded. When the prompt runs
-/specforge:approve, this script checks the target and records the approval, or
-blocks the prompt with the reason. Every other prompt passes through untouched.
-The model has no way to record an approval: state.py has no approve command
-and gate_check.py blocks the shell routes to it.
+/specforge:approve or /specforge:unapprove, this script checks the target and
+records the change, or blocks the prompt with the reason. Every other prompt
+passes through untouched. The model has no way to change an approval: state.py
+has no approve or unapprove command, and gate_check.py blocks the routes to them.
 """
 import json
 import os
@@ -16,23 +16,27 @@ from pathlib import Path
 
 import state
 
-COMMAND = "/specforge:approve"
-USAGE = "Usage: /specforge:approve spec|plan"
+APPROVE = "/specforge:approve"
+UNAPPROVE = "/specforge:unapprove"
+COMMANDS = (APPROVE, UNAPPROVE)
 _AC_ID = re.compile(r"\bAC-\d+\b")
 
 
 def parse(prompt):
-    """The command's arguments if `prompt` runs /specforge:approve, else None.
+    """(command, arguments) if `prompt` runs one of COMMANDS, else None.
 
     Claude Code runs a slash command when the prompt starts with it, with no
     leading space, and passes the rest as the arguments.
     """
-    if not isinstance(prompt, str) or not prompt.startswith(COMMAND):
+    if not isinstance(prompt, str):
         return None
-    rest = prompt[len(COMMAND):]
-    if rest and not rest[0].isspace():
-        return None  # a different command, such as /specforge:approver
-    return rest.split()
+    for command in COMMANDS:
+        if prompt.startswith(command):
+            rest = prompt[len(command):]
+            if rest and not rest[0].isspace():
+                continue  # a different command, such as /specforge:approver
+            return command, rest.split()
+    return None
 
 
 def _block(reason):
@@ -40,12 +44,13 @@ def _block(reason):
 
 
 def evaluate(prompt, project_dir):
-    """None for a prompt that is not the command, else ("ok"|"block", message)."""
-    args = parse(prompt)
-    if args is None:
+    """None for a prompt that is not one of COMMANDS, else ("ok"|"block", message)."""
+    parsed = parse(prompt)
+    if parsed is None:
         return None
+    command, args = parsed
     if args not in (["spec"], ["plan"]):
-        return _block(USAGE)
+        return _block(f"Usage: {command} spec|plan")
     target = args[0]
 
     project = Path(project_dir)
@@ -59,6 +64,8 @@ def evaluate(prompt, project_dir):
     except state.StateCorruptError as e:
         return _block(f".spec/state.json is corrupt ({e}). Fix or delete it, then run /specforge:spec.")
 
+    if command == UNAPPROVE:
+        return _unapprove(project, current, target)
     if target == "spec":
         spec = spec_dir / "spec.md"
         if not spec.is_file():
@@ -81,6 +88,18 @@ def evaluate(prompt, project_dir):
         return _block(".spec/plan.md does not exist. Run /specforge:plan first.")
     state.approve(project, "plan")
     return "ok", "specforge: the approval hook recorded the user's approval of the plan."
+
+
+def _unapprove(project, current, target):
+    if not current[f"{target}_approved"]:
+        return "block", f"specforge: the {target} is not approved, so there is nothing to withdraw."
+    data = state.unapprove(project, target)
+    withdrawn = "the spec and the plan" if target == "spec" else "the plan"
+    return "ok", (
+        f"specforge: the approval hook withdrew the user's approval of {withdrawn}. "
+        f"The phase is back to {data['phase']}. Approve again with /specforge:approve "
+        f"{'spec' if target == 'spec' else 'plan'}."
+    )
 
 
 def main(stdin=None) -> int:
