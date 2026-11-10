@@ -776,6 +776,150 @@ def test_an_ac_in_scope_with_no_tests_blocks(proj, monkeypatch, capsys):
     assert "AC-24" in capsys.readouterr().err
 
 
+# ---------- a filter that ran no tests is not a pass ----------
+# Real output from each runner (Node 24, Jest 29, Vitest 2, Mocha 10) when the
+# filter matched nothing, and when it matched something.
+
+NODE_TAP_NONE = """TAP version 13
+1..0
+# Subtest: tests/b.test.js
+ok 1 - tests/b.test.js
+  ---
+  duration_ms: 77.2
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+"""
+NODE_SPEC_NONE = """✔ tests/b.test.js (77.282285ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+"""
+NODE_TAP_NESTED = """TAP version 13
+# Subtest: Other
+    # Subtest: AC-3: nested
+    ok 1 - AC-3: nested
+    1..1
+ok 1 - Other
+1..1
+# tests 1
+# pass 1
+"""
+NODE_SPEC_SUITE = """▶ AC-2 group
+  ✔ works (0.713826ms)
+✔ AC-2 group (1.977701ms)
+ℹ tests 1
+ℹ pass 1
+"""
+JEST_NONE = """Test Suites: 1 skipped, 0 of 1 total
+Tests:       2 skipped, 2 total
+Snapshots:   0 total
+"""
+JEST_SOME = """PASS tests/a.test.js
+Tests:       1 skipped, 1 passed, 2 total
+"""
+VITEST_NONE = """ ↓ tests/v.test.mjs (2 tests | 2 skipped)
+ Test Files  1 skipped (1)
+      Tests  2 skipped (2)
+"""
+VITEST_SOME = """ ✓ tests/v.test.mjs (2 tests | 1 skipped) 3ms
+ Test Files  1 passed (1)
+      Tests  1 passed | 1 skipped (2)
+"""
+MOCHA_NONE = "\n\n  0 passing (1ms)\n\n"
+MOCHA_SOME = "\n  Controller\n    ✔ AC-1: works\n\n  1 passing (3ms)\n"
+
+
+@pytest.mark.parametrize(
+    "output,expected",
+    [
+        (NODE_TAP_NONE, False),
+        (NODE_SPEC_NONE, False),
+        (NODE_TAP_NESTED, True),
+        (NODE_SPEC_SUITE, True),
+        ("TAP version 13\nok 1 - AC-1: works\n# tests 1\n", True),
+        (JEST_NONE, False),
+        (JEST_SOME, True),
+        ("\x1b[1mTests:\x1b[22m       \x1b[33m2 skipped\x1b[39m, 2 total\n", False),
+        (VITEST_NONE, False),
+        (VITEST_SOME, True),
+        (MOCHA_NONE, False),
+        (MOCHA_SOME, True),
+        ("", None),  # no runner recognised: nothing to judge by
+        ("all good\n", None),
+        ("....\n4 passed in 0.10s\n", None),  # pytest: exit 5 already blocks an empty selection
+    ],
+)
+def test_tests_ran_reads_the_runner_output(output, expected):
+    assert test_gate.tests_ran(output) is expected
+
+
+@pytest.mark.parametrize("output", [NODE_TAP_NONE, JEST_NONE, VITEST_NONE, MOCHA_NONE])
+def test_a_filtered_run_that_ran_no_tests_blocks(proj, monkeypatch, capsys, tmp_path_factory, output):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-24", "AC-4")
+    out = tmp_path_factory.mktemp("out") / "out.txt"
+    out.write_text(output)
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": f"cat {out} #{{ac_regex}}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    err = capsys.readouterr().err
+    assert "ran no tests" in err and "AC-24" in err
+
+
+def test_a_filtered_run_that_ran_tests_is_allowed(proj, monkeypatch, tmp_path_factory):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-24", "AC-4")
+    out = tmp_path_factory.mktemp("out") / "out.txt"
+    out.write_text(JEST_SOME)
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": f"cat {out} #{{ac_regex}}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 0
+
+
+def test_the_whole_suite_is_not_judged_by_its_output(proj, monkeypatch, tmp_path_factory):
+    # Without a filter the gate keeps upstream's behaviour: the exit code decides.
+    out = tmp_path_factory.mktemp("out") / "out.txt"
+    out.write_text(NODE_TAP_NONE)
+    (proj / ".spec" / "config.json").write_text(json.dumps({"test_command": f"cat {out}"}))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 0
+
+
+NODE_AC1 = """const test = require("node:test");
+const assert = require("node:assert");
+test("AC-1: works", () => assert.ok(require("../src/a.js").ok));
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+@pytest.mark.parametrize(
+    "test_file,ok_code,expected",
+    [
+        ("a.test.js", False, 2),  # control: the AC-1 test runs and fails
+        ("a.test.js", True, 0),  # control: the AC-1 test runs and passes
+        ("a_cases.js", True, 2),  # node --test doesn't load this file: nothing ran
+    ],
+)
+def test_node_filter_end_to_end(proj, monkeypatch, capsys, test_file, ok_code, expected):
+    write_plan(proj, "- [ ] T1 do it (AC-1)\n- [ ] T2 more (AC-2)\n")
+    (proj / "tests").mkdir()
+    (proj / "tests" / test_file).write_text(NODE_AC1)
+    (proj / "src").mkdir()
+    (proj / "src" / "a.js").write_text(f"module.exports = {{ ok: {str(ok_code).lower()} }};\n")
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "node --test", "test_filter": "node --test --test-name-pattern {ac_regex}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == expected
+    if test_file == "a_cases.js":
+        assert "ran no tests" in capsys.readouterr().err
+
+
 def test_pytest_style_test_names_count_as_tests(proj, monkeypatch):
     write_plan(proj)
     (proj / "tests").mkdir()

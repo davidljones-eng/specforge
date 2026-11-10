@@ -111,6 +111,38 @@ def test_test_filter_must_be_a_string_with_a_placeholder(tmp_path, value):
         config.load(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        'node --test --test-name-pattern "{ac_regex}"',
+        "node --test --test-name-pattern '{ac_regex}'",
+        'node --test --test-name-pattern "^{ac_regex}"',
+        'pytest -q -k "{pytest_k} and not slow"',
+        'npx jest -t "{ac_regex}" --ci',
+    ],
+)
+def test_test_filter_rejects_a_placeholder_inside_quotes(tmp_path, value):
+    # The gate inserts the value already quoted. Extra quotes become part of
+    # the pattern, which then matches no test, so every commit would pass.
+    write(tmp_path, json.dumps({"test_filter": value}))
+    with pytest.raises(config.ConfigError, match="quotes"):
+        config.load(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "node --test --test-name-pattern={ac_regex}",
+        'node --test --test-name-pattern {ac_regex} "tests/*.test.js"',
+        "node --test --test-name-pattern {ac_regex} 'it'\''s'",
+        'npx jest -t {ac_regex} --testPathPattern "tests/"',
+    ],
+)
+def test_test_filter_allows_quotes_elsewhere_in_the_command(tmp_path, value):
+    write(tmp_path, json.dumps({"test_filter": value}))
+    assert config.load(tmp_path)["test_filter"] == value
+
+
 # ---------- source fidelity (M7) ----------
 
 def test_source_fidelity_is_on_by_default(tmp_path):
