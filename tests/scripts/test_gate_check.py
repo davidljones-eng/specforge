@@ -516,3 +516,18 @@ def test_ticking_a_task_moves_the_red_check_to_the_next_one(red_proj):
 def test_red_cannot_be_recorded_through_bash_edits_to_state(red_proj):
     cmd = """python3 -c "import json;p='.spec/state.json';d=json.load(open(p));d['red']={'T2':'x'};json.dump(d,open(p,'w'))" """
     assert blocked(red_proj, bash(red_proj, cmd))
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        lambda p: bash(p, "sed -i 's/true/false/' .spec/state.json"),
+        lambda p: edit(p, p / ".spec" / "state.json"),
+    ],
+)
+def test_state_json_blocks_name_both_approval_commands(tmp_path, event):
+    # Seen in a real session: asked to withdraw an approval, the model tried sed on
+    # state.json, and the block pointed only to /specforge:approve (M6).
+    proj = make_project(tmp_path, spec=True, plan=True)
+    reason = gate_check.evaluate(event(proj), proj)
+    assert "/specforge:approve" in reason and "/specforge:unapprove" in reason
