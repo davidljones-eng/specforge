@@ -262,18 +262,35 @@ def acs_in_scope(project, include_current=True):
 
 
 def ac_regex(ids):
-    """A regex matching test names that start with or mention one of the IDs."""
-    return r"\b(?:" + "|".join(ids) + r")\b"
+    """A regex matching test names that start with one of the IDs.
+
+    A test belongs to the AC its name starts with: "AC-9: sends as in AC-2" is
+    an AC-9 test, so it must not run in AC-2's scope.
+    """
+    return r"^(?:" + "|".join(ids) + r")\b"
 
 
 def pytest_k(ids):
-    """A pytest -k expression for test functions named test_ac<n>_..."""
-    return " or ".join(f"ac{i.split('-')[1]}_" for i in ids)
+    """A pytest -k expression for test functions named test_ac<n>_...
+
+    The test_ prefix keeps "test_ac9_same_as_ac2_" out of AC-2's scope.
+    """
+    return " or ".join(f"test_ac{i.split('-')[1]}_" for i in ids)
+
+
+def _test_name_patterns(ac_id):
+    """Where an AC's own test name starts: a string literal that opens with the
+    AC-ID ("AC-2: ...", 'AC-2 ...', `AC-2 ...`), or a function test_ac2_...
+    A mention later in a name or in a comment does not count."""
+    number = ac_id.split("-")[1]
+    return (
+        re.compile(rf"""["'`]AC-{number}\b"""),
+        re.compile(rf"\btest_ac{number}_", re.IGNORECASE),
+    )
 
 
 def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
-    number = ac_id.split("-")[1]
-    pattern = re.compile(rf"(?:\bAC-{number}\b|ac{number}_)", re.IGNORECASE)
+    patterns = _test_name_patterns(ac_id)
     for root, dirs, files in os.walk(run_dir, followlinks=False):
         dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
         rel_parts = Path(root).relative_to(run_dir).parts
@@ -286,7 +303,8 @@ def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
             try:
                 if path.stat().st_size > _MAX_SCAN_BYTES:
                     continue
-                if pattern.search(path.read_text(errors="ignore")):
+                text = path.read_text(errors="ignore")
+                if any(p.search(text) for p in patterns):
                     return True
             except OSError:
                 continue
