@@ -16,6 +16,10 @@ DEFAULT_CONFIG = {
     # it with the AC-IDs of done tasks plus the current task, so each task can go
     # red -> green on its own. Placeholders: {ac_regex}, {pytest_k}.
     "test_filter": None,
+    # The spec phase saves the description verbatim to .spec/source.md and
+    # spec-reviewer checks the spec against it. false gives the original spec
+    # phase. The command and agent prompts read this from config.json.
+    "source_fidelity": True,
 }
 
 FILTER_PLACEHOLDERS = ("{ac_regex}", "{pytest_k}")
@@ -76,4 +80,6 @@ def load(project_dir) -> dict:
         raise ConfigError(
             f"test_filter must be a command containing one of {list(FILTER_PLACEHOLDERS)}"
         )
+    if not isinstance(cfg["source_fidelity"], bool):
+        raise ConfigError("source_fidelity must be true or false")
     return cfg
