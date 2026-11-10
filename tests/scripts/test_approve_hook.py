@@ -198,3 +198,85 @@ def test_an_unexpected_error_blocks_the_approval(proj, monkeypatch, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["decision"] == "block" and "disk on fire" in out["reason"]
     assert approvals(proj) == (False, False)
+
+
+# ---------- withdrawing an approval (M6) ----------
+
+@pytest.fixture
+def built(proj):
+    """Both approved, mid-build, with a RED record (M4)."""
+    state.approve(proj, "spec")
+    state.approve(proj, "plan")
+    state.update(proj, phase="build")
+    state.record_red(proj, "T1", "abc1234")
+    return proj
+
+
+def test_unapprove_plan_withdraws_only_the_plan(built):
+    decision, message = run(built, "/specforge:unapprove plan")
+    assert decision == "ok" and "withdrew" in message and "plan" in message
+    data = state.read(built)
+    assert (data["spec_approved"], data["plan_approved"]) == (True, False)
+    assert data["phase"] == "plan" and data["spec_version"] == 1
+    assert state.red_tasks(data) == {"T1": "abc1234"}  # kept; re-approving clears them
+
+
+def test_unapprove_spec_withdraws_both(built):
+    decision, message = run(built, "/specforge:unapprove spec")
+    assert decision == "ok" and "withdrew" in message and "spec" in message
+    data = state.read(built)
+    assert (data["spec_approved"], data["plan_approved"]) == (False, False)
+    assert data["phase"] == "spec" and data["spec_version"] == 1
+
+
+def test_unapprove_spec_with_only_the_spec_approved(proj):
+    state.approve(proj, "spec")
+    assert run(proj, "/specforge:unapprove spec")[0] == "ok"
+    assert approvals(proj) == (False, False)
+
+
+@pytest.mark.parametrize("target", ["spec", "plan"])
+def test_nothing_to_withdraw_is_refused(proj, target):
+    before = (proj / ".spec" / "state.json").read_text()
+    decision, reason = run(proj, f"/specforge:unapprove {target}")
+    assert decision == "block" and "nothing to withdraw" in reason.lower()
+    assert (proj / ".spec" / "state.json").read_text() == before
+
+
+def test_unapprove_plan_when_only_the_spec_is_approved_is_refused(proj):
+    state.approve(proj, "spec")
+    decision, reason = run(proj, "/specforge:unapprove plan")
+    assert decision == "block" and "nothing to withdraw" in reason.lower()
+    assert approvals(proj) == (True, False)
+
+
+@pytest.mark.parametrize(
+    "prompt", ["/specforge:unapprove", "/specforge:unapprove plan now", "/specforge:unapprove build"]
+)
+def test_a_bad_unapprove_target_is_refused_with_its_usage_line(built, prompt):
+    decision, reason = run(built, prompt)
+    assert decision == "block" and "/specforge:unapprove spec|plan" in reason
+    assert approvals(built) == (True, True)
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [" /specforge:unapprove plan", "please /specforge:unapprove plan", "/specforge:unapproved plan",
+     "withdraw the plan approval"],
+)
+def test_a_prompt_that_does_not_run_unapprove_changes_nothing(built, prompt):
+    assert run(built, prompt) is None
+    assert approvals(built) == (True, True)
+
+
+def test_unapprove_with_no_state_is_refused(tmp_path):
+    (tmp_path / ".spec").mkdir()
+    decision, reason = run(tmp_path, "/specforge:unapprove plan")
+    assert decision == "block" and "/specforge:spec" in reason
+
+
+def test_main_tells_the_model_what_was_withdrawn(built, monkeypatch, capsys):
+    assert main(built, monkeypatch, prompt_event(built, "/specforge:unapprove plan")) == 0
+    context = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    assert "withdrew" in context and "plan" in context
+    assert approvals(built) == (True, False)

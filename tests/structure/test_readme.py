@@ -2,7 +2,7 @@ import pytest
 
 from conftest import headings, section
 
-COMMANDS = ["spec", "plan", "build", "review", "status", "approve"]
+COMMANDS = ["spec", "plan", "build", "review", "status", "approve", "unapprove"]
 
 
 @pytest.fixture(scope="module")
@@ -128,3 +128,10 @@ def test_readme_explains_that_a_hook_records_approvals(readme):
     gates = section(readme, "gates")
     assert "UserPromptSubmit" in gates and "approve_hook.py" in readme
     assert "run `state.py approve` through Bash" not in readme
+
+
+def test_readme_explains_that_withdrawn_approvals_keep_code_commits_blocked(readme):
+    # M6-AC4
+    gates = section(readme, "gates")
+    assert "/specforge:unapprove" in gates
+    assert "seven commands" in section(readme, "install")

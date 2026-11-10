@@ -1233,3 +1233,97 @@ def test_a_test_commit_needs_no_red(red_gitproj, monkeypatch):
 def test_a_current_task_without_ac_ids_needs_no_red(red_gitproj, monkeypatch):
     write_plan(red_gitproj, "## Tasks\n- [x] T1 (M1, AC-1): first\n- [ ] T2 (M1): set up the build\n")
     assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj)) == 0
+
+
+# ---------- withdrawn approvals keep code commits blocked (M6-AC4) ----------
+
+@pytest.fixture
+def withdrawn(gitproj):
+    """Mid-build, the user has withdrawn the plan approval. Tests would fail."""
+    # absolute: in commit scope the tests run in a temporary copy
+    set_config(gitproj, test_command=f"touch '{gitproj}/ran.marker' && exit 1")
+    (gitproj / "src").mkdir()
+    (gitproj / "src" / "a.py").write_text("x = 1\n")
+    _git(gitproj, "add", "src")
+    _git(gitproj, "commit", "-qm", "feat: a")
+    state.update(gitproj, plan_approved=False)
+    return gitproj
+
+
+def gate(monkeypatch, proj, command):
+    return run_gate(monkeypatch, proj, git_commit_event(proj, command))
+
+
+@pytest.mark.parametrize("prefix", ["feat", "test", "fix"])
+def test_a_code_commit_without_the_plan_approval_is_blocked(withdrawn, monkeypatch, capsys, prefix):
+    (withdrawn / "src" / "a.py").write_text("x = 2\n")
+    _git(withdrawn, "add", "src")
+    assert gate(monkeypatch, withdrawn, f"git commit -m '{prefix}: change a'") == 2
+    err = capsys.readouterr().err
+    assert "src/a.py" in err and "/specforge:approve plan" in err
+    assert not (withdrawn / "ran.marker").exists()  # no point running the tests
+
+
+def test_without_the_spec_approval_the_reason_names_the_spec(withdrawn, monkeypatch, capsys):
+    state.update(withdrawn, spec_approved=False)
+    (withdrawn / "src" / "b.py").write_text("y = 1\n")
+    _git(withdrawn, "add", "src")
+    assert gate(monkeypatch, withdrawn, "git commit -m 'feat: b'") == 2
+    assert "/specforge:approve spec" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git add src/a.py && git commit -m 'feat: change a'",
+        "git commit -am 'feat: change a'",
+        "git commit src/a.py -m 'feat: change a'",
+    ],
+)
+def test_code_changes_are_found_however_they_are_committed(withdrawn, monkeypatch, command):
+    (withdrawn / "src" / "a.py").write_text("x = 3\n")
+    assert gate(monkeypatch, withdrawn, command) == 2
+
+
+def test_worktree_scope_still_blocks_code_commits(withdrawn, monkeypatch):
+    set_config(withdrawn, test_command="exit 0", commit_gate_scope="worktree")
+    (withdrawn / "src" / "a.py").write_text("x = 4\n")
+    _git(withdrawn, "add", "src")
+    assert gate(monkeypatch, withdrawn, "git commit -m 'feat: change a'") == 2
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["tests/test_a.py", "docs/notes.md", "README", ".spec/plan.md", "src/CLAUDE.md"],
+)
+def test_commits_without_code_still_go_through(withdrawn, monkeypatch, path):
+    (withdrawn / path).parent.mkdir(parents=True, exist_ok=True)
+    (withdrawn / path).write_text("new\n")
+    _git(withdrawn, "add", "-f", path)
+    assert gate(monkeypatch, withdrawn, "git commit -m 'test: plan more'") == 0
+    assert not (withdrawn / "ran.marker").exists()
+
+
+def test_before_any_approval_the_plan_phase_can_commit_tests(gitproj, monkeypatch):
+    state.update(gitproj, spec_approved=False, plan_approved=False)
+    set_config(gitproj, test_command="exit 1")
+    (gitproj / "tests").mkdir()
+    (gitproj / "tests" / "test_a.py").write_text("def test_ac1_x(): assert False\n")
+    _git(gitproj, "add", "tests")
+    assert gate(monkeypatch, gitproj, "git commit -m 'test: failing tests'") == 0
+
+
+def test_an_invalid_config_blocks_while_approvals_are_missing(withdrawn, monkeypatch, capsys):
+    (withdrawn / ".spec" / "config.json").write_text("{bad")
+    (withdrawn / "README").write_text("y\n")
+    _git(withdrawn, "add", "README")
+    assert gate(monkeypatch, withdrawn, "git commit -m 'docs: x'") == 2
+    assert "config.json" in capsys.readouterr().err
+
+
+def test_reapproving_turns_the_test_run_back_on(withdrawn, monkeypatch):
+    state.approve(withdrawn, "plan")
+    (withdrawn / "src" / "a.py").write_text("x = 5\n")
+    _git(withdrawn, "add", "src")
+    assert gate(monkeypatch, withdrawn, "git commit -m 'feat: change a'") == 2
+    assert (withdrawn / "ran.marker").exists()  # blocked by the failing tests this time
