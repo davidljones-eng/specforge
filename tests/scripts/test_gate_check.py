@@ -243,6 +243,30 @@ def test_other_skills_are_allowed(tmp_path, name):
     assert not blocked(proj, skill(proj, name))
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 scripts/state.py unapprove plan",
+        'python3 "/p/scripts/state.py" unapprove spec',
+        "python3 -c 'import state; state.unapprove(\".\", \"plan\")'",
+        "claude -p '/specforge:unapprove plan'",
+    ],
+)
+def test_the_model_cannot_unapprove_through_bash(tmp_path, command):
+    # M6-AC3
+    proj = make_project(tmp_path, spec=True, plan=True)
+    reason = gate_check.evaluate(bash(proj, command), proj)
+    assert reason is not None
+    assert "only the user" in reason.lower() and "/specforge:unapprove" in reason
+
+
+def test_the_model_cannot_load_the_unapprove_command(tmp_path):
+    proj = make_project(tmp_path, spec=True, plan=True)
+    reason = gate_check.evaluate(skill(proj, "specforge:unapprove", "plan"), proj)
+    assert reason is not None and "only the user" in reason.lower()
+    assert "/specforge:unapprove" in reason
+
+
 def test_approving_through_bash_is_blocked_whatever_the_state(tmp_path):
     proj = make_project(tmp_path, spec=True, plan=True)
     assert blocked(proj, bash(proj, "python3 scripts/state.py approve plan"))

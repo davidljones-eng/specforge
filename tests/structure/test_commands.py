@@ -4,7 +4,7 @@ import pytest
 
 from conftest import parse_frontmatter
 
-COMMANDS = ["spec", "plan", "build", "review", "status", "approve"]
+COMMANDS = ["spec", "plan", "build", "review", "status", "approve", "unapprove"]
 PLUGIN_ROOT_REF = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/([\w./-]+)")
 
 
@@ -40,7 +40,7 @@ def test_command_scripts_and_templates_referenced_exist(root, name):
         assert (root / ref.rstrip(".,;:)")).exists(), f"{name}.md references missing {ref}"
 
 
-@pytest.mark.parametrize("name", ["plan", "build", "review", "status", "approve"])
+@pytest.mark.parametrize("name", ["plan", "build", "review", "status", "approve", "unapprove"])
 def test_state_driven_commands_use_state_script(root, name):
     _, body, _ = load(root, name)
     assert "${CLAUDE_PLUGIN_ROOT}/scripts/state.py" in body
@@ -255,3 +255,31 @@ def test_build_records_red_with_the_red_script(root):
     red, green = body.index("**RED**"), body.index("**GREEN**")
     assert red < body.index("red.py") < green  # part of the RED step
     assert "already pass" in low  # what to do when red.py refuses
+
+
+# ---------- /specforge:unapprove (M6) ----------
+
+def test_unapprove_cannot_be_invoked_by_the_model(root):
+    meta, _, _ = load(root, "unapprove")
+    assert meta.get("disable-model-invocation") == "true"
+    assert "spec|plan" in meta["argument-hint"]
+
+
+def test_unapprove_does_not_record_anything_itself(root):
+    import re
+    _, body, low = load(root, "unapprove")
+    assert "$ARGUMENTS" in body
+    assert not re.search(r"state\.py\"?\s+(un)?approve", body)
+    assert "hook" in low and "never" in low
+
+
+def test_unapprove_explains_what_each_target_resets(root):
+    _, body, low = load(root, "unapprove")
+    assert "plan_approved" in body and "spec_approved" in body
+    assert "not recorded" in low and "yourself" in low
+    assert "/specforge:approve" in body  # how to approve again
+
+
+def test_status_mentions_unapprove(root):
+    _, body, _ = load(root, "status")
+    assert "/specforge:unapprove" in body

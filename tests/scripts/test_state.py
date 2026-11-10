@@ -181,6 +181,43 @@ def test_approve_plan_after_spec(proj):
     assert result["spec_approved"] and result["plan_approved"]
 
 
+def test_unapprove_plan_keeps_the_spec_and_moves_the_phase_back(proj):
+    # M6-AC1
+    state.create(proj)
+    state.approve(proj, "spec")
+    state.approve(proj, "plan")
+    state.update(proj, phase="build")
+    result = state.unapprove(proj, "plan")
+    assert (result["spec_approved"], result["plan_approved"]) == (True, False)
+    assert result["phase"] == "plan" and result["spec_version"] == 1
+    assert state.read(proj) == result
+
+
+def test_unapprove_spec_resets_both_without_a_version_bump(proj):
+    # M6-AC2
+    state.create(proj)
+    state.approve(proj, "spec")
+    state.approve(proj, "plan")
+    result = state.unapprove(proj, "spec")
+    assert (result["spec_approved"], result["plan_approved"]) == (False, False)
+    assert result["phase"] == "spec" and result["spec_version"] == 1
+
+
+@pytest.mark.parametrize("target", ["spec", "plan"])
+def test_unapprove_what_is_not_approved_is_an_error(proj, target):
+    state.create(proj)
+    with pytest.raises(ValueError, match="not approved"):
+        state.unapprove(proj, target)
+    assert state.read(proj) == state.DEFAULT_STATE
+
+
+def test_unapprove_unknown_target(proj):
+    state.create(proj)
+    state.approve(proj, "spec")
+    with pytest.raises(ValueError):
+        state.unapprove(proj, "build")
+
+
 def test_approve_unknown_target(proj):
     state.create(proj)
     with pytest.raises(ValueError):
@@ -236,6 +273,17 @@ def test_cli_init_then_get(proj, capsys):
 def test_cli_init_with_mode(proj):
     assert run(proj, "init", "--mode", "auto") == 0
     assert state.read(proj)["build_mode"] == "auto"
+
+
+@pytest.mark.parametrize("target", ["spec", "plan"])
+def test_cli_has_no_unapprove_command(proj, capsys, target):
+    # M6-AC3
+    run(proj, "init")
+    state.approve(proj, "spec")
+    with pytest.raises(SystemExit) as exit_info:
+        run(proj, "unapprove", target)
+    assert exit_info.value.code != 0
+    assert state.read(proj)["spec_approved"] is True
 
 
 @pytest.mark.parametrize("target", ["spec", "plan"])
