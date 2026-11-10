@@ -127,7 +127,7 @@ If `.spec/spec.md` changes after approval, the spec version goes up and both app
 | `/specforge:build [--mode strict\|checkpoint\|auto]` | Refuses unless spec and plan are approved. Builds on a feature branch with red, green, refactor per task. |
 | `/specforge:review` | Fresh `code-reviewer`, writes `review.md`, opens a PR. Never merges. |
 | `/specforge:status` | Read-only: phase, approvals, spec version, build mode, pending items. |
-| `/specforge:approve spec\|plan` | Records your approval. Only you can run it: the model is not allowed to invoke it. |
+| `/specforge:approve spec\|plan` | Records your approval. Only you can run it: a hook records the approval when you submit the command, and the model has no way to record one. |
 
 Build modes: `strict` pauses after every task, `checkpoint` (default) after each milestone, `auto` only before risky actions such as deleting files, changing dependencies, migrations, external calls or force pushes.
 
@@ -148,6 +148,7 @@ Hooks read it and block with a clear reason on stderr:
 | Edits to test folders (`tests`, at any depth) | Blocked until `spec_approved` is true. This lets the plan phase write failing tests. |
 | `CLAUDE.md` files inside those folders | Treated like tests: allowed once the spec is approved. |
 | Edits to `.spec/state.json` | Always blocked. Approvals go through `/specforge:approve`. Shell commands that write to it are blocked too, on a best-effort basis. |
+| Approvals | Recorded only by a `UserPromptSubmit` hook (`scripts/approve_hook.py`), which Claude Code runs only on prompts you submit. When your prompt is `/specforge:approve spec` or `plan`, the hook checks it in code: the spec must exist and have AC-IDs, and the plan must exist, with the spec already approved. Then it records the approval, or refuses the prompt and shows you why. A prompt that only mentions approving changes nothing. `state.py` has no `approve` command, and shell commands that would approve (`state.py approve`, `import state`, or a nested `claude -p "/specforge:approve …"`) are blocked. So is the model loading `/specforge:approve` through the Skill tool, which `disable-model-invocation` doesn't stop when you ask Claude to run it. |
 | `git commit` | Once both approvals are in, blocked while the test suite fails. The suite runs on **exactly what the commit would contain** (staged files, plus any `git add` in the same command, plus tracked changes for `commit -a`; for `git commit <paths>`, the named tracked files as they are on disk, as git does), in a temporary copy, so unstaged or untracked files on disk cannot make a commit pass. Commits whose message starts with `test:` are let through, so failing tests (RED) can be committed. |
 | Spec changes | Editing `.spec/spec.md` after approval bumps `spec_version` and resets both approvals. |
 | Red first (with `test_filter` set) | A task's code waits until its tests have been seen failing. Edits to source folders, and commits that change code, are blocked while the current task (the first unticked one in `plan.md`) lists AC-IDs and has no RED recorded. `scripts/red.py` records RED: it runs that task's tests on a temporary copy of `HEAD` and records the task in `state.json` (`"red": {"T4": "<commit>"}`) only if they fail. It refuses when they pass, when no test ran, or when a test isn't committed. Tasks with no AC-IDs need no RED. Approving the plan clears the records. `"red_first": false` turns this off. |
@@ -234,7 +235,7 @@ Claude: review.md written: AC-1..AC-6 all pass, no gaps.
 - **Red first checks that tests fail, not why.** `red.py` records RED when a task's tests fail at `HEAD`, so a test that fails from a typo still counts. Code written through Bash is caught when it's committed, not when it's written. Code outside `code_dirs` isn't covered, and a task whose tests pass before its code exists can only be ticked with no code change, which the review should question.
 - **A `test:` commit can contain anything.** The prefix only skips the test run. The review step is where misuse shows up.
 - **The commit gate reads the command from the project folder.** A `git add` in the same command as the commit is replayed into a temporary index, and paths named in `git commit <paths>` (with `-o`/`--only`, `-i`/`--include` or neither) are matched as git would from the project folder. A `cd` or `git -C <dir>` before them is not followed, and `--pathspec-from-file` is blocked, so stage first and commit separately when it matters. The real index is never changed by the gate.
-- **The Bash guard for `state.json` is best effort.** Hooks cannot reliably parse every shell command. Someone determined could write to the file by a route the pattern does not recognize, or run `state.py approve` through Bash. `/specforge:approve` cannot be invoked by the model, but the underlying script is a normal Python file.
+- **The Bash guards for `state.json` and approvals are best effort.** Hooks cannot reliably parse every shell command. A model with general shell access could still write the file by a route the patterns do not recognize. The plugin's own route is closed: only the approval hook records approvals, and it runs only on prompts you submit. A headless `claude -p "/specforge:approve spec"` counts as you, since you ran it.
 - **The commit gate starts after both approvals.** Before that, no source code can be written, and committing planning documents with failing tests would deadlock the plan phase.
 - **Hooks need Claude Code 2.1.295 or later** for `onFailure: block`. On older versions a crashing hook script does not block. `/specforge:status` warns when it detects an older version. It reads the version from variables Claude Code sets but doesn't document, so if they change it says it couldn't tell rather than guessing.
 - `python3` must be on the PATH, and the test runner must be installed in the environment Claude runs commands in.
@@ -257,6 +258,6 @@ commands/         spec, plan, build, review, status, approve
 agents/           spec-reviewer, test-writer, code-reviewer
 skills/           spec-writing (SKILL.md and templates)
 hooks/hooks.json  gate wiring
-scripts/          state.py, config.py, gate_check.py, test_gate.py, red.py, version_check.py
+scripts/          state.py, config.py, gate_check.py, approve_hook.py, test_gate.py, red.py, version_check.py
 tests/            structure/ and scripts/
 ```
