@@ -198,3 +198,11 @@ def test_build_explains_per_task_test_scope(root):
     assert "current task" in low
     # tick the task only after its feat/refactor commits, so the gate's scope is right
     assert "after" in low and "tick" in low
+
+
+def test_build_records_red_with_the_red_script(root):
+    _, body, low = load(root, "build")
+    assert "${CLAUDE_PLUGIN_ROOT}/scripts/red.py" in body
+    red, green = body.index("**RED**"), body.index("**GREEN**")
+    assert red < body.index("red.py") < green  # part of the RED step
+    assert "already pass" in low  # what to do when red.py refuses

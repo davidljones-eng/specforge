@@ -55,7 +55,7 @@ def test_gates_section_names_each_hook_behavior(readme):
 
 def test_configuration_documents_config_json_keys(readme):
     cfg = section(readme, "configuration")
-    for key in ("code_dirs", "test_dirs", "test_command", ".spec/config.json"):
+    for key in ("code_dirs", "test_dirs", "test_command", ".spec/config.json", "red_first"):
         assert key in cfg
 
 
@@ -116,3 +116,8 @@ def test_troubleshooting_section(readme):
     low = section(readme, "troubleshooting").lower()
     for needle in ("/plugin", "errors", "claude plugin validate", "/reload-plugins", "python3"):
         assert needle in low, needle
+
+
+def test_readme_explains_red_first(readme):
+    assert "red.py" in readme
+    assert "red.py" in section(readme, "gates")

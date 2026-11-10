@@ -291,3 +291,54 @@ def test_cli_init_twice_fails(proj, capsys):
     capsys.readouterr()
     assert run(proj, "init") == 1
     assert "exists" in capsys.readouterr().err.lower()
+
+
+# ---------- RED records (M4) ----------
+
+def test_a_state_file_from_before_m4_reads_as_no_red_recorded(proj):
+    write_raw(proj, json.dumps(state.DEFAULT_STATE))
+    data = state.read(proj)
+    assert state.red_tasks(data) == {}
+
+
+def test_record_red_adds_an_entry_and_keeps_the_others(proj):
+    state.create(proj)
+    state.record_red(proj, "T1", "abc1234")
+    state.record_red(proj, "T4", "def5678")
+    assert state.read(proj)["red"] == {"T1": "abc1234", "T4": "def5678"}
+    assert state.read(proj)["phase"] == "spec"  # nothing else changes
+
+
+def test_create_writes_no_red_key(proj):
+    assert "red" not in state.create(proj)
+
+
+@pytest.mark.parametrize(
+    "red", [[], {"X1": "abc1234"}, {"T1": 3}, {"T1": ""}, "T1"]
+)
+def test_invalid_red_records_are_corrupt(proj, red):
+    write_raw(proj, json.dumps({**state.DEFAULT_STATE, "red": red}))
+    with pytest.raises(state.StateCorruptError):
+        state.read(proj)
+
+
+@pytest.mark.parametrize("task_id,sha", [("X1", "abc1234"), ("T1", "")])
+def test_record_red_rejects_bad_values_and_does_not_write(proj, task_id, sha):
+    state.create(proj)
+    with pytest.raises(ValueError):
+        state.record_red(proj, task_id, sha)
+    assert "red" not in state.read(proj)
+
+
+def test_approving_the_plan_clears_red_records(proj):
+    state.create(proj)
+    state.approve(proj, "spec")
+    state.record_red(proj, "T1", "abc1234")
+    state.approve(proj, "plan")
+    assert state.red_tasks(state.read(proj)) == {}
+
+
+def test_the_cli_cannot_record_red(proj):
+    state.create(proj)
+    with pytest.raises(SystemExit):
+        state.main(["--project-dir", str(proj), "record-red", "T1", "abc1234"])

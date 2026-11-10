@@ -18,6 +18,7 @@ def test_defaults_when_no_config_file(tmp_path):
         "commit_gate_scope": "commit",
         "test_env_links": [".venv", "venv", "node_modules"],
         "test_filter": None,
+        "red_first": True,
     }
 
 
@@ -141,3 +142,15 @@ def test_test_filter_allows_quotes_elsewhere_in_the_command(tmp_path, value):
     write(tmp_path, json.dumps({"test_filter": value}))
     assert config.load(tmp_path)["test_filter"] == value
 
+
+# ---------- red first (M4) ----------
+
+def test_red_first_is_on_by_default(tmp_path):
+    assert config.load(tmp_path)["red_first"] is True
+
+
+@pytest.mark.parametrize("value", ["false", 0, None])
+def test_red_first_must_be_a_boolean(tmp_path, value):
+    write(tmp_path, json.dumps({"red_first": value}))
+    with pytest.raises(config.ConfigError):
+        config.load(tmp_path)
