@@ -50,6 +50,24 @@ def _check_links(value):
             raise ConfigError(f"test_env_links entries must stay inside the project, got {item!r}")
 
 
+def _placeholder_in_quotes(command: str) -> bool:
+    """True if a placeholder sits inside '...' or "..." in a shell command."""
+    quote, i = None, 0
+    while i < len(command):
+        char = command[i]
+        if char == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote is None and char in "'\"":
+            quote = char
+        elif char == quote:
+            quote = None
+        elif quote and any(command.startswith(ph, i) for ph in FILTER_PLACEHOLDERS):
+            return True
+        i += 1
+    return False
+
+
 def load(project_dir) -> dict:
     cfg = {k: list(v) if isinstance(v, list) else v for k, v in DEFAULT_CONFIG.items()}
     path = Path(project_dir) / ".spec" / "config.json"
@@ -79,6 +97,12 @@ def load(project_dir) -> dict:
     ):
         raise ConfigError(
             f"test_filter must be a command containing one of {list(FILTER_PLACEHOLDERS)}"
+        )
+    if flt is not None and _placeholder_in_quotes(flt):
+        raise ConfigError(
+            "test_filter must not put {ac_regex} or {pytest_k} inside quotes. The gate "
+            "inserts them already quoted, so extra quotes become part of the pattern, which "
+            "then matches no test. Write e.g. node --test --test-name-pattern {ac_regex}"
         )
     if not isinstance(cfg["source_fidelity"], bool):
         raise ConfigError("source_fidelity must be true or false")
