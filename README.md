@@ -160,7 +160,8 @@ Optional `.spec/config.json`:
   "code_dirs": ["src", "app", "lib", "backend"],
   "test_dirs": ["tests", "spec_tests"],
   "test_command": "make test",
-  "source_fidelity": true
+  "source_fidelity": true,
+  "ac_budget": 15
 }
 ```
 
@@ -168,6 +169,7 @@ Optional `.spec/config.json`:
 - `test_dirs`: folder names that count as tests. Default `tests`. A path inside both, such as `app/tests/x.py`, counts as a test.
 - `test_command`: how to run the suite. If unset, specforge looks for `pytest`, then `npm test`, then `flutter test`. If it finds none, or the runner is not installed, commits are blocked with a message telling you to set it.
 - `source_fidelity`: `true` (default) makes `/specforge:spec` save your description and answers word for word to `.spec/source.md`, copy its quoted strings and numbers into the spec exactly, carry its constraints (stack, dependencies, storage) into the spec's Scope or Out of Scope, and have `spec-reviewer` treat any change to them, or a constraint kept only in `requirement.md`, as blocking. `false` gives the original spec phase: no `source.md` and no fidelity check. Set it before running `/specforge:spec`.
+- `ac_budget`: `15` (default). When the spec has more ACs than this, `spec-reviewer` suggests splitting the feature or merging ACs that only restate others. It's a suggestion for you, never a blocking issue, and Claude doesn't cut ACs on its own to meet it. `/specforge:spec`'s summary always shows the size, from `scripts/spec_size.py`: for example `6 source checks → 21 ACs (budget 15). C1: 4, C2: 1, … Over budget by 6.` `null` turns the suggestion off.
 
 ## Example session
 
@@ -244,6 +246,6 @@ commands/         spec, plan, build, review, status, approve
 agents/           spec-reviewer, test-writer, code-reviewer
 skills/           spec-writing (SKILL.md and templates)
 hooks/hooks.json  gate wiring
-scripts/          state.py, config.py, gate_check.py, test_gate.py
+scripts/          state.py, config.py, gate_check.py, test_gate.py, spec_size.py
 tests/            structure/ and scripts/
 ```

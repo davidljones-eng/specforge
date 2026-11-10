@@ -10,6 +10,9 @@ DEFAULT_CONFIG = {
     # spec-reviewer checks the spec against it. false gives the original spec
     # phase. The command and agent prompts read this from config.json.
     "source_fidelity": True,
+    # More ACs than this makes spec-reviewer suggest splitting the feature or
+    # merging ACs (M8). null turns the suggestion off; spec_size.py still counts.
+    "ac_budget": 15,
 }
 
 
@@ -47,4 +50,7 @@ def load(project_dir) -> dict:
         raise ConfigError("test_command must be a non-empty string")
     if not isinstance(cfg["source_fidelity"], bool):
         raise ConfigError("source_fidelity must be true or false")
+    budget = cfg["ac_budget"]
+    if budget is not None and (isinstance(budget, bool) or not isinstance(budget, int) or budget < 1):
+        raise ConfigError("ac_budget must be a positive whole number, or null to turn it off")
     return cfg
