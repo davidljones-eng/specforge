@@ -185,13 +185,46 @@ def test_bash_writes_to_state_json_blocked(tmp_path, command):
         "cat .spec/state.json 2>&1",
         "grep phase .spec/state.json",
         "git status",
-        "python3 scripts/state.py approve spec",
+        "python3 scripts/state.py get",
+        "python3 scripts/state.py set-phase build",
+        "git commit -m 'feat: approve button'",
+        "grep -rn approve src",
         "pytest -q",
     ],
 )
 def test_other_bash_commands_allowed(tmp_path, command):
     proj = make_project(tmp_path)
     assert not blocked(proj, bash(proj, command))
+
+
+# ---------- only the user approves (M5-AC2) ----------
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 scripts/state.py approve spec",
+        'python3 "/home/u/.claude/plugins/specforge/scripts/state.py" approve spec',
+        "python scripts/state.py  approve plan",
+        "cd scripts && ./state.py approve spec",
+        "python3 'scripts/state.py' 'approve' spec",
+        'python3 scripts/st"ate".py approve spec',
+        "python3 scripts/st\\ate.py approve spec",
+        "python3 -c 'import state; state.approve(\".\", \"spec\")'",
+        "python3 -c 'from state import approve; approve(\".\", \"plan\")'",
+        "claude -p '/specforge:approve spec'",
+        "echo /specforge:approve plan | claude -p",
+    ],
+)
+def test_the_model_cannot_approve_through_bash(tmp_path, command):
+    proj = make_project(tmp_path)
+    reason = gate_check.evaluate(bash(proj, command), proj)
+    assert reason is not None
+    assert "only the user" in reason.lower() and "/specforge:approve" in reason
+
+
+def test_approving_through_bash_is_blocked_whatever_the_state(tmp_path):
+    proj = make_project(tmp_path, spec=True, plan=True)
+    assert blocked(proj, bash(proj, "python3 scripts/state.py approve plan"))
 
 
 # ---------- fail safe ----------

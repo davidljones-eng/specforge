@@ -128,3 +128,10 @@ def test_install_says_how_to_check_the_claude_code_version(readme):
 def test_readme_explains_red_first(readme):
     assert "red.py" in readme
     assert "red.py" in section(readme, "gates")
+
+
+def test_readme_explains_that_a_hook_records_approvals(readme):
+    # M5
+    gates = section(readme, "gates")
+    assert "UserPromptSubmit" in gates and "approve_hook.py" in readme
+    assert "run `state.py approve` through Bash" not in readme
