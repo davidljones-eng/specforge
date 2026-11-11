@@ -441,3 +441,62 @@ def test_phase_commands_keep_to_the_tools_a_headless_run_allows(root, name):
     # the third run's one refusal: `npm test`, when the allowed runner was test_command
     rule = next(l for l in body.splitlines() if "only the shell commands" in l)
     assert "test_command" in rule
+
+
+# ---------- M14: pausing and continuing a build ----------
+
+def _paragraph(body, needle):
+    """The blank-line-separated block of `body` that contains `needle`."""
+    block = next((b for b in body.split("\n\n") if needle in b), None)
+    assert block is not None, f"no paragraph mentions {needle!r}"
+    return block
+
+
+def test_build_commits_its_ticks_before_it_stops(root):
+    # M14-AC1: one spike run left the last tick uncommitted, believing the gate
+    # would block a commit of plan.md alone; it doesn't, and a new session or a
+    # fresh clone needs the ticks in git
+    _, body, _ = load(root, "build")
+    rule = _paragraph(body, "Before you stop").lower()
+    assert "chore:" in rule and ".spec/plan.md" in rule and "tick" in rule
+    for reason in ("pause", "fail", "end of the build"):
+        assert reason in rule
+    assert "allows" in rule  # says the hook lets it through, so it isn't avoided
+
+
+def test_build_pause_says_how_to_continue(root):
+    # M14-AC1: the spike's pauses said "Reply to approve" or "run /specforge:build
+    # again" at random; both work, headless included
+    _, body, _ = load(root, "build")
+    pause = _paragraph(body, "**Pause**")
+    low = pause.lower()
+    assert "reply" in low and "/specforge:build` again" in pause
+    assert "new session" in low or "new one" in low
+    assert 'claude -p "/specforge:build"' in pause
+    assert "end your turn" in low
+
+
+def test_build_continues_from_the_first_unticked_task(root):
+    # M14-AC2: a new session took being run again as approval only by inference
+    _, body, _ = load(root, "build")
+    resume = _paragraph(body, "already ticked")
+    low = resume.lower()
+    assert "first unticked task" in low
+    assert "go-ahead" in low and "next milestone" in low
+    assert "don't redo" in low or "do not redo" in low
+
+
+def test_build_keeps_work_an_earlier_session_left_uncommitted(root):
+    # M14-AC2: never discard it; the spike's run reviewed, tested and committed it
+    _, body, _ = load(root, "build")
+    rule = _paragraph(body, "uncommitted")
+    low = rule.lower()
+    assert "git status" in rule and "never discard" in low
+    for discard in ("git checkout --", "git restore", "git stash", "git reset"):
+        assert discard in rule
+
+
+def test_build_has_no_resume_flag(root):
+    # M14-AC2: being run again is the resume; a flag would clash with claude --resume
+    meta, body, _ = load(root, "build")
+    assert "--resume" not in meta["argument-hint"] and "--resume" not in body
