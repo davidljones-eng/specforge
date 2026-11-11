@@ -41,6 +41,9 @@ def run(project):
             "specforge: no RED recorded. Approve the spec and the plan first "
             "(/specforge:approve spec, then /specforge:approve plan)."
         )
+    changed = state.config_change_reason(project, current)  # M17
+    if changed:
+        return 1, f"specforge: no RED recorded. {changed.removeprefix('specforge: ')}"
     try:
         cfg = config.load(project)
     except config.ConfigError as e:
