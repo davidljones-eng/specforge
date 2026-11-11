@@ -166,3 +166,9 @@ def test_every_check_covered_says_nothing_about_coverage(tmp_path):
 def test_uncovered_comes_before_over_budget(tmp_path):
     line = spec_size.summary_line(spec_size.measure(project(tmp_path, config={"ac_budget": 4})))
     assert line.endswith("Uncovered checks: C3. Over budget by 2.")
+
+
+def test_a_visibility_tag_in_the_id_cell_is_not_part_of_the_id(tmp_path):
+    # M11: SPEC+ tags hidden checks, e.g. "| C2 [hidden] |"
+    source = "| ID | Then |\n|---|---|\n| C1 | a |\n| C2 [hidden] | b |\n| `C3` [visible] | c |\n"
+    assert spec_size.measure(project(tmp_path, source=source))["checks"] == ["C1", "C2", "C3"]
