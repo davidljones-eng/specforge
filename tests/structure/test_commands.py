@@ -438,3 +438,6 @@ def test_phase_commands_keep_to_the_tools_a_headless_run_allows(root, name):
     assert "only the shell commands" in low
     # the second run's one refusal: `node --test 2>&1; echo "EXIT=$?"`
     assert "on its own" in low and "echo" in body
+    # the third run's one refusal: `npm test`, when the allowed runner was test_command
+    rule = next(l for l in body.splitlines() if "only the shell commands" in l)
+    assert "test_command" in rule
