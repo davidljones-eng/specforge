@@ -536,6 +536,55 @@ _RAN = re.compile(r"(\d+) (?:passed|failed)")
 _NO_TESTS = re.compile(r"^No test(?:s| files) found\b", re.M)  # Jest, Vitest
 
 
+# A test file that failed to load (M16). Node reports the file itself as a
+# failed test, after printing the error; pytest reports a collection error.
+_NODE_FILE_FAILED = re.compile(
+    r"^\s*(?:not ok \d+ - |\u2716 )(?P<file>[^\n]+?\.(?:[cm]?[jt]sx?))(?: \([\d.]+ms\))?\s*$", re.M)
+_NODE_ERROR = re.compile(r"^(?:# )?(?P<error>(?:[A-Z]\w*)?Error\b(?: \[[A-Z_]+\])?: [^\n]*)$", re.M)
+_PYTEST_COLLECT = re.compile(r"^_+ ERROR collecting (?P<file>\S+) _+$", re.M)
+_PYTEST_ERROR = re.compile(r"^E\s+(?P<error>\w*(?:Error|Exception)\b[^\n]*)$", re.M)
+
+
+def load_failures(output: str):
+    """[(file, error)] for each test file the runner couldn't load, in order."""
+    text = _ANSI.sub("", output)
+    found = []
+    sections = list(_PYTEST_COLLECT.finditer(text))
+    for i, m in enumerate(sections):
+        end = sections[i + 1].start() if i + 1 < len(sections) else len(text)
+        error = _PYTEST_ERROR.search(text, m.end(), end)
+        found.append((m.group("file"), error.group("error").strip() if error else ""))
+    files = list(dict.fromkeys(m.group("file").strip() for m in _NODE_FILE_FAILED.finditer(text)))
+    errors = [m.group("error").strip() for m in _NODE_ERROR.finditer(text)]
+    for i, f in enumerate(files):
+        found.append((f, errors[i] if i < len(errors) else (errors[0] if errors else "")))
+    return found
+
+
+def strip_root(text: str, root) -> str:
+    """text with a temporary tree's path (plain or as a file URL) taken out."""
+    from urllib.parse import quote
+    root = str(root).rstrip("/") + "/"
+    for form in (root, quote(root)):
+        text = text.replace("file://" + form, "").replace(form, "")
+    return text
+
+
+def load_failure_note(failures) -> str:
+    """What to say when test files failed to load (M16-AC3)."""
+    listed = "; ".join(f"{f} ({e})" if e else f for f, e in failures)
+    return (
+        f"A test file failed to load: {listed}. A file that can't load fails the whole run, "
+        "and none of its tests run. Usually it loads code that a later task writes, at the top "
+        "of the file. Tests should load the code under test inside each test (await import(...) "
+        "in the test, or the import inside the test function for pytest), so a missing module "
+        "fails only that test. If these tests were approved with the plan, don't stub the "
+        "missing code or rewrite the tests to get past this: tell the user, who can run "
+        "/specforge:unapprove plan, have the tests fixed, and approve the plan again. If you "
+        "wrote them in this build, change them and commit them with a `test:` prefix."
+    )
+
+
 def tests_ran(output: str):
     """Did the runner run any test? True, False, or None for unknown output.
 
@@ -725,6 +774,9 @@ def evaluate(event, project_dir):
         return None
     if result.returncode == 127:
         return f"specforge: commit blocked. Test runner not found (exit 127): {test_command}"
+    failures = load_failures(result.stdout + result.stderr)
+    if failures:
+        notes.insert(0, load_failure_note([(f, strip_root(e, run_dir)) for f, e in failures]))
     note_text = "".join(f"\n{n}" for n in notes)
     return (
         f"specforge: commit blocked. Tests failed (exit {result.returncode}): {test_command}\n"
