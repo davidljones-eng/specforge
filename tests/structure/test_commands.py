@@ -429,3 +429,5 @@ def test_phase_commands_keep_to_the_tools_a_headless_run_allows(root, name):
     _, body, low = load(root, name)
     assert "read tool" in low and "cat" in body
     assert "only the shell commands" in low
+    # the second run's one refusal: `node --test 2>&1; echo "EXIT=$?"`
+    assert "on its own" in low and "echo" in body
