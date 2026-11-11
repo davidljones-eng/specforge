@@ -44,7 +44,9 @@ def test_skill_explains_ac_ids(skill_dir):
 
 # ---------- spec.md ----------
 
-SPEC_SECTIONS = ["goal", "scope", "out of scope", "acceptance criteria", "edge cases"]
+# "change log": seen in a real --from run (M9), the writer filled only the
+# template's sections, so the mapping's I -> change log row was dropped.
+SPEC_SECTIONS = ["goal", "scope", "out of scope", "acceptance criteria", "edge cases", "change log"]
 
 
 @pytest.mark.parametrize("title", SPEC_SECTIONS)
@@ -112,3 +114,32 @@ def test_root_claude_template_points_at_spec_files(templates):
     for ref in (".spec/spec.md", ".spec/plan.md", ".spec/state.json"):
         assert ref in text
     assert "red" in text.lower() and "green" in text.lower()
+
+
+def test_root_claude_template_has_a_constraints_section(templates):
+    # M9-AC3: the nearest thing SpecForge has to SPEC+'s shared constitution
+    assert "## Constraints" in read(templates / "root-CLAUDE.md")
+
+
+def test_skill_maps_spec_plus_to_specforge(skill_dir):
+    # M9-AC4: a fixed table, not the model's own reading
+    body = read(skill_dir / "SKILL.md")
+    assert "## Importing SPEC+" in body
+    section = body[body.index("## Importing SPEC+"):]
+    for row in ("| S |", "| P table |", "| E1 |", "| E2 / E3 |", "| C table |", "| I |", "Constraints"):
+        assert row in section, row
+    assert "[Cn]" in section and "CLAUDE.md" in section
+
+
+# ---------- source IDs (M10) ----------
+
+def test_plan_traceability_has_a_source_column(templates):
+    trace = section(read(templates / "plan.md"), "traceability")
+    header = next(l for l in trace.splitlines() if l.startswith("| AC"))
+    assert [c.strip() for c in header.strip("|").split("|")][:2] == ["AC", "Source"]
+
+
+def test_review_template_has_a_source_checks_section(templates):
+    text = read(templates / "review.md")
+    assert "source checks" in headings(text)
+    assert "trace_check.py --rollup" in section(text, "source checks")

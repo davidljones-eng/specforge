@@ -18,7 +18,9 @@ def test_defaults_when_no_config_file(tmp_path):
         "commit_gate_scope": "commit",
         "test_env_links": [".venv", "venv", "node_modules"],
         "test_filter": None,
+        "source_fidelity": True,
         "red_first": True,
+        "ac_budget": 15,
     }
 
 
@@ -143,6 +145,25 @@ def test_test_filter_allows_quotes_elsewhere_in_the_command(tmp_path, value):
     assert config.load(tmp_path)["test_filter"] == value
 
 
+# ---------- source fidelity (M7) ----------
+
+def test_source_fidelity_is_on_by_default(tmp_path):
+    assert config.load(tmp_path)["source_fidelity"] is True
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_source_fidelity_accepts_true_or_false(tmp_path, value):
+    write(tmp_path, json.dumps({"source_fidelity": value}))
+    assert config.load(tmp_path)["source_fidelity"] is value
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, None, []])
+def test_source_fidelity_must_be_a_boolean(tmp_path, value):
+    write(tmp_path, json.dumps({"source_fidelity": value}))
+    with pytest.raises(config.ConfigError):
+        config.load(tmp_path)
+
+
 # ---------- red first (M4) ----------
 
 def test_red_first_is_on_by_default(tmp_path):
@@ -153,4 +174,19 @@ def test_red_first_is_on_by_default(tmp_path):
 def test_red_first_must_be_a_boolean(tmp_path, value):
     write(tmp_path, json.dumps({"red_first": value}))
     with pytest.raises(config.ConfigError):
+        config.load(tmp_path)
+
+
+# ---------- AC budget (M8) ----------
+
+@pytest.mark.parametrize("value", [1, 40, None])
+def test_ac_budget_accepts_a_positive_integer_or_null(tmp_path, value):
+    write(tmp_path, json.dumps({"ac_budget": value}))
+    assert config.load(tmp_path)["ac_budget"] == value
+
+
+@pytest.mark.parametrize("value", [0, -3, 2.5, "15", True, [15]])
+def test_ac_budget_rejects_anything_else(tmp_path, value):
+    write(tmp_path, json.dumps({"ac_budget": value}))
+    with pytest.raises(config.ConfigError, match="ac_budget"):
         config.load(tmp_path)

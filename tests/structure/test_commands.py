@@ -75,6 +75,32 @@ def test_spec_uses_the_templates(root):
         assert f"skills/spec-writing/templates/{tpl}" in body
 
 
+
+def test_spec_saves_the_description_verbatim_as_the_source(root):
+    _, body, low = load(root, "spec")
+    assert ".spec/source.md" in body
+    assert "verbatim" in low
+    # it must be saved before anything is derived from it
+    assert body.index(".spec/source.md") < body.index("skills/spec-writing/templates/requirement.md")
+
+
+def test_spec_reviewer_is_given_the_source(root):
+    _, body, _ = load(root, "spec")
+    review_step = next(l for l in body.splitlines() if "spec-reviewer" in l and "subagent" in l)
+    assert ".spec/source.md" in review_step
+
+
+def test_spec_can_turn_source_fidelity_off(root):
+    # "source_fidelity": false gives the original spec phase: no source.md,
+    # no copy-exactly rule, and the reviewer is not given a source
+    _, body, _ = load(root, "spec")
+    assert '"source_fidelity": false' in body
+    assert body.index(".spec/config.json") < body.index("verbatim")
+    save_step = next(l for l in body.splitlines() if "verbatim" in l and ".spec/source.md" in l)
+    assert "source_fidelity" in save_step and "skip" in save_step.lower()
+    review_step = next(l for l in body.splitlines() if "spec-reviewer" in l and "subagent" in l)
+    assert "source_fidelity" in review_step
+
 # ---------- /specforge:plan ----------
 
 def test_plan_refuses_when_spec_not_approved(root):
@@ -259,3 +285,86 @@ def test_approval_commands_end_the_turn(root, name):
     _, body, _ = load(root, name)
     last = body.strip().splitlines()[-1]
     assert last.split(". ", 1)[-1].startswith("Stop.")
+
+
+def test_spec_writer_carries_source_constraints_into_the_spec(root):
+    # M7-AC4: the constraint goes in spec.md, not only in requirement.md
+    _, body, _ = load(root, "spec")
+    step = next(l for l in body.splitlines() if "templates/spec.md" in l)
+    low = step.lower()
+    assert "constraint" in low and "requirement.md" in low
+    assert "scope" in low and "out of scope" in low
+
+
+# ---------- AC budget (M8) ----------
+
+def test_spec_measures_the_spec_before_the_review(root):
+    _, body, _ = load(root, "spec")
+    script = "${CLAUDE_PLUGIN_ROOT}/scripts/spec_size.py"
+    assert script in body
+    review = body.index("specforge:spec-reviewer")
+    assert body.index("templates/spec.md") < body.index(script) < review
+    step = next(l for l in body.splitlines() if "specforge:spec-reviewer" in l)
+    assert "spec_size.py" in step  # the reviewer gets the line
+
+
+def test_spec_shows_the_size_line_in_its_summary(root):
+    _, body, _ = load(root, "spec")
+    stop = next(l for l in body.splitlines() if l.lstrip().startswith("7. **Stop.**"))
+    assert "spec_size.py" in stop and "suggestion" in stop.lower()
+
+
+def test_spec_writer_does_not_cut_acs_to_meet_the_budget(root):
+    # M8-AC3: merging ACs or splitting the feature is the user's call
+    _, body, low = load(root, "spec")
+    step = next(l for l in body.splitlines() if "specforge:spec-reviewer" in l).lower()
+    assert "budget" in step and "merge" in step and "user" in step
+
+
+# ---------- importing SPEC+ (M9) ----------
+
+def test_spec_takes_from_files(root):
+    meta, body, _ = load(root, "spec")
+    assert "--from <file>" in meta["argument-hint"]
+    assert "--from" in body
+
+
+def test_spec_copies_from_files_with_the_import_script(root):
+    # M9-AC1: a script copies them, not the model
+    _, body, _ = load(root, "spec")
+    step = next(l for l in body.splitlines() if "verbatim" in l and ".spec/source.md" in l)
+    assert "${CLAUDE_PLUGIN_ROOT}/scripts/import_source.py" in step
+    assert "source_fidelity" in step
+
+
+def test_spec_points_to_the_spec_plus_mapping(root):
+    # M9-AC4
+    _, body, _ = load(root, "spec")
+    assert "Importing SPEC+" in body
+
+
+def test_spec_fills_the_root_claude_md_constraints(root):
+    # M9-AC3
+    _, body, _ = load(root, "spec")
+    step = next(l for l in body.splitlines() if "templates/root-CLAUDE.md" in l)
+    assert "Constraints" in step and "E4" in step
+
+
+# ---------- source IDs (M10) ----------
+
+def test_plan_checks_the_traceability_table_before_stopping(root):
+    _, body, _ = load(root, "plan")
+    script = "${CLAUDE_PLUGIN_ROOT}/scripts/trace_check.py\" --plan"
+    assert script in body
+    stop = body.index("**Stop.**")
+    assert body.index(script) < stop
+    step = next(l for l in body.splitlines() if "traceability table" in l)
+    assert "Source" in step
+
+
+def test_review_puts_the_rollup_in_review_md(root):
+    _, body, _ = load(root, "review")
+    script = "${CLAUDE_PLUGIN_ROOT}/scripts/trace_check.py\" --rollup"
+    assert script in body
+    step = next(l for l in body.splitlines() if "--rollup" in l)
+    assert "Source Checks" in step

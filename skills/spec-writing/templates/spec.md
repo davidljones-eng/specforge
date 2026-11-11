@@ -17,3 +17,6 @@ Version: 1
 
 ## Edge Cases
 - <Empty input, invalid input, duplicates, limits, failures, concurrency.>
+
+## Change log
+- Version 1: first draft.

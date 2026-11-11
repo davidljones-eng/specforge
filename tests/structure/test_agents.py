@@ -81,6 +81,45 @@ def test_spec_reviewer_checks_the_spec_quality_rules(root):
     assert "verdict" in low
 
 
+
+def test_spec_reviewer_checks_fidelity_to_the_source(root):
+    _, body, low = load(root, "spec-reviewer")
+    assert ".spec/source.md" in body
+    assert "fidelity" in low
+    for needle in ("quoted", "number", "unchanged", "blocking"):
+        assert needle in low, needle
+
+
+def test_spec_reviewer_lists_source_fidelity_as_check_8(root):
+    _, body, _ = load(root, "spec-reviewer")
+    assert any(l.startswith("8. **Fidelity to the source.**") for l in body.splitlines())
+
+
+def test_spec_reviewer_blocks_a_constraint_kept_only_in_the_requirement(root):
+    # M7-AC4: in a re-check on Track C v2, only 1 run in 10 flagged that spec.md
+    # had dropped "no runtime dependencies", which only requirement.md kept.
+    _, body, _ = load(root, "spec-reviewer")
+    check = next(l for l in body.splitlines() if "Fidelity to the source" in l).lower()
+    assert "constraint" in check and "requirement.md" in check
+    assert "scope" in check and "out of scope" in check
+    assert "dropped" in check and "blocking" in check
+
+
+def test_spec_reviewer_suggests_but_never_blocks_on_size(root):
+    # M8-AC2
+    _, body, _ = load(root, "spec-reviewer")
+    check = next(l for l in body.splitlines() if l.startswith("9. "))
+    low = check.lower()
+    assert "spec_size.py" in check and "budget" in low
+    assert "suggestion" in low and "never" in low and "blocking" in low
+    assert "restate" in low
+
+
+def test_spec_reviewer_skips_fidelity_when_it_is_turned_off(root):
+    _, body, _ = load(root, "spec-reviewer")
+    check = next(l for l in body.splitlines() if "Fidelity to the source" in l)
+    assert '"source_fidelity": false' in check and "skip" in check.lower()
+
 def test_code_reviewer_maps_every_ac_with_locations(root):
     _, body, low = load(root, "code-reviewer")
     assert "every ac" in low
@@ -121,3 +160,11 @@ def test_test_writer_starts_each_name_with_its_own_ac_id(root):
     _, _, low = load(root, "test-writer")
     assert "start each test's name with its own ac-id" in low
     assert "other acs" in low
+
+
+def test_spec_reviewer_blocks_uncovered_source_checks(root):
+    # M9-AC2
+    _, body, _ = load(root, "spec-reviewer")
+    check = next(l for l in body.splitlines() if l.startswith("10. "))
+    assert "Uncovered checks" in check and "spec_size.py" in check
+    assert "**blocking**" in check

@@ -55,7 +55,8 @@ def test_gates_section_names_each_hook_behavior(readme):
 
 def test_configuration_documents_config_json_keys(readme):
     cfg = section(readme, "configuration")
-    for key in ("code_dirs", "test_dirs", "test_command", ".spec/config.json", "red_first"):
+    for key in ("code_dirs", "test_dirs", "test_command", ".spec/config.json", "source_fidelity",
+                "red_first", "ac_budget"):
         assert key in cfg
 
 
@@ -135,3 +136,14 @@ def test_readme_explains_that_withdrawn_approvals_keep_code_commits_blocked(read
     gates = section(readme, "gates")
     assert "/specforge:unapprove" in gates
     assert "seven commands" in section(readme, "install")
+
+
+def test_readme_explains_importing_spec_plus(readme):
+    # M9
+    assert "--from" in section(readme, "commands")
+    assert "import_source.py" in readme
+
+
+def test_readme_mentions_source_ids_in_plan_and_review(readme):
+    # M10
+    assert "trace_check.py" in readme
