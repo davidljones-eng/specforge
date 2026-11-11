@@ -420,3 +420,12 @@ def test_commands_call_scripts_only_through_the_specforge_entry_point(root, name
     _, body, _ = load(root, name)
     assert "CLAUDE_PLUGIN_ROOT}/scripts/" not in body
     assert "python3" not in body
+
+
+@pytest.mark.parametrize("name", ["spec", "plan", "build", "review"])
+def test_phase_commands_keep_to_the_tools_a_headless_run_allows(root, name):
+    # M13: a dontAsk run refused `cat` on templates and .spec files, and `node -e`
+    # chained after a commit; the model recovered each time, but needn't try
+    _, body, low = load(root, name)
+    assert "read tool" in low and "cat" in body
+    assert "only the shell commands" in low
