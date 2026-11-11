@@ -240,3 +240,41 @@ def test_readme_documents_the_folder_checks(readme):
 def test_readme_documents_red_all_and_loading_inside_each_test(readme):
     # M16
     assert "specforge red --all" in readme and "inside each test" in readme
+
+
+# ---------- M18: no test-runner rule in the headless tool sets ----------
+
+_RUNNERS = ("node", "npm", "npx", "pytest", "jest", "vitest", "flutter", "make", "yarn", "pnpm")
+
+
+def _runner_rules(argv):
+    return [a for a in argv if a.startswith("Bash(") and a[5:].split(":")[0].split()[0].split("/")[-1] in _RUNNERS]
+
+
+def test_headless_plan_and_build_need_no_test_runner_rule(readme):
+    # M18-AC3: `specforge test` runs the gate's command, so Bash(specforge:*) covers it
+    calls = _invocations(readme)
+    phases = [a for a in calls if any(x.startswith(("/specforge:plan", "/specforge:build")) for x in a)
+              or "--continue" in a]
+    assert phases
+    for argv in phases:
+        assert "Bash(specforge:*)" in argv
+        assert _runner_rules(argv) == [], f"runner rule in {argv}"
+
+
+def test_headless_review_keeps_a_runner_rule_only_for_the_holdout_command(readme):
+    # M18-AC3
+    calls = _invocations(readme)
+    reviews = [a for a in calls if any(x.startswith("/specforge:review") for x in a)]
+    assert reviews
+    text = section(readme, "headless / ci")
+    assert "specforge test" in text and "holdout_command" in text
+    for argv in reviews:
+        assert len(_runner_rules(argv)) <= 1
+
+
+def test_readme_says_specforge_test_runs_the_gates_command(readme):
+    # M18-AC1
+    configuration = section(readme, "configuration")
+    bullet = configuration.split("- `test_command`")[1].split("\n- ")[0]
+    assert "specforge test" in bullet

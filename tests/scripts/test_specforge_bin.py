@@ -78,3 +78,19 @@ def test_usage_lists_config_and_trace_tests(proj):
 def test_usage_lists_red_all(proj):
     # M16-AC2
     assert "red [--all]" in sf(proj, "--help").stdout
+
+
+def test_test_runs_the_configured_command_and_passes_its_status(proj):
+    # M18-AC1, run the way the shell runs it
+    (proj / ".spec").mkdir()
+    cmd = f"{sys.executable} -c \"import sys; print('suite ran'); sys.exit(3)\""
+    (proj / ".spec" / "config.json").write_text(json.dumps({"test_command": cmd}))
+    got = sf(proj, "test")
+    assert got.returncode == 3
+    lines = got.stdout.splitlines()
+    assert lines[0] == f"specforge test: {cmd}" and "suite ran" in lines[1:]
+
+
+def test_usage_lists_test(proj):
+    # M18-AC1
+    assert "specforge test [AC-ID ...]" in sf(proj, "--help").stdout
