@@ -18,7 +18,8 @@ USAGE = """usage: specforge <command> [args]
   specforge state get|init|set-phase <phase>|set-mode <mode>|bump
   specforge red                        record RED for the current task
   specforge spec-size                  count ACs against the source and the budget
-  specforge trace --plan|--rollup|--edges
+  specforge config                     print .spec/config.json with defaults filled in
+  specforge trace --plan|--tests|--rollup|--edges
   specforge import <file> [<file> ...] copy source files into .spec/source.md
   specforge version-check              warn if Claude Code is too old
 
@@ -38,6 +39,9 @@ def main(argv):
     if command == "state":
         import state
         return state.main(rest)
+    if command == "config":
+        import config
+        return config.main(rest)
     if command == "red":
         import red
         return red.main(rest)

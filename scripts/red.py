@@ -42,7 +42,7 @@ def run(project):
         return 1, f"specforge: .spec/config.json is invalid ({e})."
     if not cfg["test_filter"]:
         return 1, (
-            'specforge: red.py needs "test_filter" in .spec/config.json, so that it can run '
+            'specforge: recording RED needs "test_filter" in .spec/config.json, so that it can run '
             "one task's tests."
         )
     if not cfg["red_first"]:
@@ -76,8 +76,9 @@ def run(project):
         if missing:
             return 1, (
                 f"specforge: no RED recorded for {task_id}. No test named after "
-                f"{', '.join(missing)} is committed at HEAD. Write it, commit it with a "
-                "`test:` prefix, then run red.py again."
+                f"{', '.join(missing)} is committed at HEAD in {test_gate.folder_list(cfg['test_dirs'])}."
+                + (test_gate.missing_tests_note(run_dir, cfg["test_dirs"], missing)
+                   or " Write it, commit it with a `test:` prefix, then run `specforge red` again.")
             )
         command = test_gate.filter_command(cfg["test_filter"], acs)
         try:
@@ -109,7 +110,7 @@ def run(project):
         return 1, (
             f"specforge: no RED recorded for {task_id}. Its tests for {', '.join(acs)} already "
             f"pass at HEAD:\n{output}\nIf {task_id} still needs code, its tests are too weak: "
-            "write a stricter failing test, commit it with a `test:` prefix, and run red.py "
+            "write a stricter failing test, commit it with a `test:` prefix, and run `specforge red` "
             f"again. If the behavior is already there, tick {task_id} in .spec/plan.md with no "
             "code change and say so in the build summary."
         )
@@ -128,7 +129,7 @@ def main(argv=None) -> int:
     try:
         code, message = run(project)
     except Exception as e:  # noqa: BLE001 - report, never record on an unexpected error
-        code, message = 1, f"specforge: red.py failed ({e}); no RED recorded."
+        code, message = 1, f"specforge: red failed ({e}); no RED recorded."
     print(message)
     return code
 

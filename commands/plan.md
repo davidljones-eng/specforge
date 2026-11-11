@@ -23,18 +23,20 @@ Run `specforge state get` first.
 
 2. Read `.spec/spec.md` and `.spec/requirement.md`. Note the `spec_version` from the state.
 
+   Run `specforge config`. Its `code_dirs` and `test_dirs` are the folders the hooks know: they hold source code back until the plan is approved, and the build's commit gate and `specforge red` look for tests only under `test_dirs`. Plan the source under a `code_dirs` folder and the tests under a `test_dirs` folder (`src/` and `tests/` with the defaults), even where the project's tools would choose another name, such as Node's `test/`. Don't put tests next to the code (`src/a.test.js`, `src/__tests__/`): the hooks treat them as code, so they can't be written in this phase, unless their folder is in `test_dirs`. If the project already keeps its code or tests in other folders, stop and ask the user to add those folders to `code_dirs` or `test_dirs` in `.spec/config.json`, then run `/specforge:plan` again. Never edit `.spec/config.json` yourself.
+
 3. Load the `spec-writing` skill and write `.spec/plan.md` from `${CLAUDE_PLUGIN_ROOT}/skills/spec-writing/templates/plan.md`:
    - Milestones, each a demonstrable slice.
    - Small tasks, each tagged with the AC-IDs it satisfies, for example `T1 (M1, AC-1)`. Every AC must be covered by at least one task.
-   - A folder structure.
-   - The traceability table from each AC to its Source (the AC's tags exactly as written in `spec.md`, such as `C1, E2`, or "—" if it has none), its tasks and its test file. Then run `specforge trace --plan`. If it reports a mismatch, fix the table and run it again until it passes.
+   - A folder structure, with the source and tests under the folders from `specforge config`.
+   - The traceability table from each AC to its Source (the AC's tags exactly as written in `spec.md`, such as `C1, E2`, or "—" if it has none), its tasks and its test file. Then run `specforge trace --plan`. If it reports a mismatch, fix the table and run it again until it passes. It also notes any planned folder outside `code_dirs` and `test_dirs`, which the hooks don't gate: move it under them, or ask the user.
 
 4. Create the planned folders. In each source or test folder, add a short `CLAUDE.md` from `${CLAUDE_PLUGIN_ROOT}/skills/spec-writing/templates/folder-CLAUDE.md`. Each one is at most 10 lines.
 
-5. Run the `specforge:test-writer` subagent. Give it **only** the acceptance criteria from `.spec/spec.md` and the test folder layout. It must not see implementation ideas. It writes failing tests, one or more per AC, and names each test after its AC-ID.
+5. Run the `specforge:test-writer` subagent. Give it **only** the acceptance criteria from `.spec/spec.md`, the test folder layout, and the `test_dirs` names: tests go only under those folders. It must not see implementation ideas. It writes failing tests, one or more per AC, and names each test after its AC-ID.
 
    If `.spec/holdout.md` lists hidden ACs (`HAC-1`, …), also run the `specforge:holdout-writer` subagent. Give it `.spec/holdout.md` and the interface from `.spec/spec.md`'s Scope. It writes their tests to `.spec/holdout/`, which a hook keeps everyone else from writing. Never mention hidden ACs or their tests in `.spec/plan.md`, and never put them in the test folders.
 
-6. Run the tests and confirm they fail for the right reason (the feature is missing), not because of a syntax error or a broken import. Fix the tests if they fail for the wrong reason. Do not commit in this phase.
+6. Run the tests and confirm they fail for the right reason (the feature is missing), not because of a syntax error or a broken import. Fix the tests if they fail for the wrong reason. Then run `specforge trace --tests`. It checks that every AC has a test under a `test_dirs` folder, where the build looks for it. If it fails, move the tests it names under a `test_dirs` folder, or ask the user to add their folder to `test_dirs`, and run it again until it passes. Do not commit in this phase.
 
-7. **Stop.** Summarize the milestones, the task count, the `specforge trace --plan` result, and which tests were created and are failing. Tell the user to review `.spec/plan.md` and the tests, then run `/specforge:approve plan`, then `/specforge:build`. If there are hidden ACs, tell them to start a fresh session first (`/clear`, or a new window) and run `/specforge:build` there: this conversation has seen the hidden checks, so the hooks won't let it write code. Do not approve anything yourself and do not write any production code.
+7. **Stop.** Summarize the milestones, the task count, the `specforge trace --plan` and `specforge trace --tests` results, and which tests were created and are failing. Tell the user to review `.spec/plan.md` and the tests, then run `/specforge:approve plan`, then `/specforge:build`. If there are hidden ACs, tell them to start a fresh session first (`/clear`, or a new window) and run `/specforge:build` there: this conversation has seen the hidden checks, so the hooks won't let it write code. Do not approve anything yourself and do not write any production code.

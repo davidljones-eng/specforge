@@ -6,7 +6,8 @@ Spec version: <n>
 - M1: <Demonstrable slice of the feature.>
 
 ## Folder Structure
-- `<folder>/` - <what lives here>
+- `<a code_dirs folder, e.g. src>/` - <the source>
+- `<a test_dirs folder, e.g. tests>/` - <the tests, named after their AC-IDs>
 
 ## Tasks
 - [ ] T1 (M1, AC-1): <Small task that can be done red, green, refactor.>
