@@ -1,3 +1,4 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["scripts"]
+markers = ["config_lock: approving the plan records the config fingerprint (M17)"]

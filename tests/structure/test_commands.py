@@ -590,3 +590,13 @@ def test_review_runs_the_full_suite_with_specforge_test(root):
     # M18-AC2
     _, body, _ = load(root, "review")
     assert "`specforge test`" in _step(body, "1.")
+
+
+# ---------- M17: the build never changes config.json ----------
+
+def test_build_never_changes_config_json_and_asks_the_user(root):
+    # M17-AC1: the hooks block it; the rule says why and what to do instead
+    _, body, _ = load(root, "build")
+    rules = body.split("## Rules", 1)[1] if "## Rules" in body else body
+    bullet = next(l for l in rules.splitlines() if "config.json" in l and l.lstrip().startswith("-"))
+    assert "never" in bullet.lower() and "ask the user" in bullet.lower()

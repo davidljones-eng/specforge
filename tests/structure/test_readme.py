@@ -278,3 +278,19 @@ def test_readme_says_specforge_test_runs_the_gates_command(readme):
     configuration = section(readme, "configuration")
     bullet = configuration.split("- `test_command`")[1].split("\n- ")[0]
     assert "specforge test" in bullet
+
+
+# ---------- M17: config.json is fixed once the plan is approved ----------
+
+def test_gates_say_config_json_is_fixed_once_the_plan_is_approved(readme):
+    # M17-AC4
+    gates = section(readme, "gates")
+    row = next(l for l in gates.splitlines() if l.startswith("|") and "config.json" in l and "fingerprint" in l)
+    assert "/specforge:approve plan" in row and "specforge test" in row
+
+
+def test_limitations_say_the_config_bash_guard_is_best_effort(readme):
+    # M17-AC4
+    text = section(readme, "limitations")
+    bullet = next(b for b in text.split("\n- ") if "config.json" in b)
+    assert "best effort" in bullet.lower() and "fingerprint" in bullet
