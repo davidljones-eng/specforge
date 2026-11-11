@@ -129,3 +129,17 @@ def test_skill_maps_spec_plus_to_specforge(skill_dir):
     for row in ("| S |", "| P table |", "| E1 |", "| E2 / E3 |", "| C table |", "| I |", "Constraints"):
         assert row in section, row
     assert "[Cn]" in section and "CLAUDE.md" in section
+
+
+# ---------- source IDs (M10) ----------
+
+def test_plan_traceability_has_a_source_column(templates):
+    trace = section(read(templates / "plan.md"), "traceability")
+    header = next(l for l in trace.splitlines() if l.startswith("| AC"))
+    assert [c.strip() for c in header.strip("|").split("|")][:2] == ["AC", "Source"]
+
+
+def test_review_template_has_a_source_checks_section(templates):
+    text = read(templates / "review.md")
+    assert "source checks" in headings(text)
+    assert "trace_check.py --rollup" in section(text, "source checks")
