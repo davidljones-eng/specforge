@@ -16,7 +16,8 @@ Version: 1
 - AC-2: Given <context>, when <action>, then <observable result>.
 
 ## Edge Cases
-- <Empty input, invalid input, duplicates, limits, failures, concurrency.>
+- EC-1: <One edge case, one claim: empty input, invalid input, duplicates, limits, failures or concurrency.> (AC-1)
+- EC-2: <...> (AC-2, or "review only" for a manual check)
 
 ## Change log
 - Version 1: first draft.

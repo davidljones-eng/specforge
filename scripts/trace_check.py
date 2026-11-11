@@ -3,6 +3,7 @@
 
     trace_check.py --plan     check plan.md's traceability Source column against spec.md
     trace_check.py --rollup   print review.md's per-check roll-up as a markdown table
+    trace_check.py --edges    check review.md has a row for every EC- edge case in spec.md (M12)
 
 An AC's tags, and the source's checks, are read with spec_size.py's rules (the
 ones tools/check_coverage.py uses), so every script agrees on what a tag is.
@@ -32,7 +33,7 @@ def _ac_tables(text):
     i = 0
     while i < len(lines):
         line = lines[i].strip()
-        if line.startswith("|") and _cells(line)[:1] and _cells(line)[0].lower() in ("ac", "hac"):
+        if line.startswith("|") and _cells(line)[:1] and _cells(line)[0].lower() in ("ac", "hac", "ec"):
             header, rows = _cells(line), []
             i += 1
             if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i].strip()):
@@ -155,15 +156,65 @@ def rollup(project):
     return 0, "\n".join(lines)
 
 
+_EC_BULLET = re.compile(r"^\s*[-*]\s+\**(EC-\d+)\**\s*:", re.MULTILINE)
+
+
+def _edge_status(cell):
+    low = cell.replace("`", "").replace("*", "").strip().lower()
+    if "untested" in low:
+        return "untested"
+    if "review only" in low or "review-only" in low:
+        return "review only"
+    if low.startswith("tested"):
+        return "tested"
+    return None
+
+
+def check_edges(project):
+    """(0, summary) if review.md has a valid row for every EC- edge case in spec.md."""
+    try:
+        spec, review = _read(project, "spec.md"), _read(project, "review.md")
+    except FileNotFoundError as e:
+        return 1, str(e)
+    ids = list(dict.fromkeys(_EC_BULLET.findall(spec)))
+    if not ids:
+        return 0, ("spec.md has no EC-IDs (it was written before M12), so there's nothing to "
+                   "check. The review numbers the edge cases itself.")
+    table = None
+    for header, rows in _ac_tables(review):
+        names = [h.lower() for h in header]
+        if names[0] == "ec" and "status" in names:
+            table = (names.index("status"), len(header), rows)
+            break
+    if table is None:
+        return 1, "review.md has no Edge Cases table (first column EC, with a Status column)."
+    col, width, rows = table
+    found = {}
+    for row in rows:
+        ec = row[0].replace("*", "") if row else ""
+        if re.fullmatch(r"EC-\d+", ec):
+            found[ec] = _edge_status(row[col - width] if len(row) >= width - col else "")
+    problems = [f"{ec} is in spec.md but has no row in the Edge Cases table." for ec in ids if ec not in found]
+    problems += [f"{ec}: the status must be tested, untested or review only." for ec in ids
+                 if ec in found and found[ec] is None]
+    problems += [f"{ec} is in the Edge Cases table but not in spec.md." for ec in found if ec not in ids]
+    if problems:
+        return 1, "The Edge Cases table doesn't match .spec/spec.md:\n" + "\n".join(f"- {p}" for p in problems)
+    counts = {s: sum(1 for ec in ids if found[ec] == s) for s in ("tested", "untested", "review only")}
+    return 0, (f"Every edge case has a row: {len(ids)} edge cases, {counts['tested']} tested, "
+               f"{counts['untested']} untested, {counts['review only']} review only.")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="trace_check.py")
     parser.add_argument("--project-dir")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--plan", action="store_true")
     mode.add_argument("--rollup", action="store_true")
+    mode.add_argument("--edges", action="store_true")
     args = parser.parse_args(argv)
     project = args.project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    code, message = check_plan(project) if args.plan else rollup(project)
+    code, message = check_plan(project) if args.plan else rollup(project) if args.rollup else check_edges(project)
     print(message)
     return code
 
