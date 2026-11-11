@@ -186,3 +186,10 @@ def test_post_hook_bumps_version_when_run_as_a_real_process(hooks_file, root, tm
     result = run_hook(hook, root, tmp_path, event)
     assert result.returncode == 0
     assert state.read(tmp_path)["spec_version"] == 2
+
+
+# ---------- holdout reads (M11) ----------
+
+def test_reads_and_searches_are_guarded_by_gate_check(hooks_file):
+    (matcher, hook), = find(hooks_file, "PreToolUse", "gate_check.py", matcher="Read|Grep|Glob")
+    assert hook.get("onFailure") == "block"

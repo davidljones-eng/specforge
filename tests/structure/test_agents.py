@@ -4,7 +4,7 @@ import pytest
 
 from conftest import parse_frontmatter
 
-AGENTS = ["spec-reviewer", "test-writer", "code-reviewer"]
+AGENTS = ["spec-reviewer", "test-writer", "code-reviewer", "holdout-writer"]
 REVIEWERS = ["spec-reviewer", "code-reviewer"]
 READ_ONLY_TOOLS = {"Read", "Grep", "Glob"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"}
@@ -168,3 +168,19 @@ def test_spec_reviewer_blocks_uncovered_source_checks(root):
     check = next(l for l in body.splitlines() if l.startswith("10. "))
     assert "Uncovered checks" in check and "spec_size.py" in check
     assert "**blocking**" in check
+
+
+# ---------- holdout writer (M11) ----------
+
+def test_holdout_writer_writes_only_holdout_tests(root):
+    meta, body, low = load(root, "holdout-writer")
+    tools = tools_of(meta)
+    assert {"Read", "Write"} <= tools and "Bash" not in tools
+    assert ".spec/holdout.md" in body and ".spec/holdout/" in body
+    assert "hac-" in low and "start each test's name with its own hac-id" in low
+    assert "never write production code" in low
+
+
+def test_spec_reviewer_reads_the_holdout_file(root):
+    _, body, _ = load(root, "spec-reviewer")
+    assert ".spec/holdout.md" in body
