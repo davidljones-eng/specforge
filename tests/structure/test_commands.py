@@ -500,3 +500,39 @@ def test_build_has_no_resume_flag(root):
     # M14-AC2: being run again is the resume; a flag would clash with claude --resume
     meta, body, _ = load(root, "build")
     assert "--resume" not in meta["argument-hint"] and "--resume" not in body
+
+
+# ---------- M15: the plan phase uses the folders the hooks know ----------
+
+def test_plan_reads_the_configured_folders_before_writing_the_plan(root):
+    # M15-AC1: one of two baseline plans put its tests in test/, which the hooks don't see
+    _, body, _ = load(root, "plan")
+    assert "specforge config" in body
+    assert body.index("specforge config") < body.index("templates/plan.md")
+    assert "test_dirs" in body and "code_dirs" in body
+
+
+def test_plan_keeps_tests_out_of_code_folders(root):
+    # M15-AC1: src/a.test.js counts as code, so the plan phase can't even write it
+    _, body, low = load(root, "plan")
+    assert "next to the code" in low and "src/a.test.js" in body
+
+
+def test_plan_never_edits_the_config_itself(root):
+    _, _, low = load(root, "plan")
+    assert "never edit `.spec/config.json`" in low
+
+
+def test_plan_gives_test_writer_the_test_folders(root):
+    _, body, _ = load(root, "plan")
+    step = _paragraph(body, "specforge:test-writer")
+    assert "test_dirs" in step
+
+
+def test_plan_checks_where_the_tests_are_before_stopping(root):
+    # M15-AC2
+    _, body, _ = load(root, "plan")
+    assert "specforge trace --tests" in body
+    assert body.index("specforge trace --tests") > body.index("specforge:test-writer")
+    stop = _paragraph(body, "**Stop.**")
+    assert "trace --tests" in stop

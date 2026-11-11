@@ -234,3 +234,10 @@ def test_readme_says_state_stays_in_the_working_folder(readme):
     # M14 known limit
     text = section(readme, "limitations")
     assert "state.json" in text and "fresh clone" in text
+
+
+def test_readme_documents_the_folder_checks(readme):
+    # M15
+    assert "specforge config" in readme and "trace --tests" in readme
+    configuration = section(readme, "configuration")
+    assert "/specforge:plan" in configuration.split("`test_dirs`")[1].split("\n- ")[0]
