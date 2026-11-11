@@ -6,7 +6,7 @@ description: Turn the approved spec into plan.md, a folder structure with short 
 
 You are starting the **plan** phase. Work from the project root.
 
-Read files with the Read tool, not `cat` or other shell commands, and use only the shell commands this file names (`specforge`, git, and `test_command` from `.spec/config.json` exactly as written there, not `npm test` or another way to run the tests). Run each shell command on its own, not chained with `;`, `&&` or a pipe and not followed by `echo`; the exit status is reported anyway. Headless runs allow exactly those commands, so anything else is refused.
+Read files with the Read tool, not `cat` or other shell commands, and use only the shell commands this file names (`specforge`, git, and `specforge test` to run the tests, which runs what the commit gate runs, not `npm test`, `node --test`, `pytest` or another way to run them). Run each shell command on its own, not chained with `;`, `&&` or a pipe and not followed by `echo`; the exit status is reported anyway. Headless runs allow exactly those commands, so anything else is refused.
 
 ## Gate: refuse if the spec is not approved
 
@@ -37,7 +37,7 @@ Run `specforge state get` first.
 
    If `.spec/holdout.md` lists hidden ACs (`HAC-1`, …), also run the `specforge:holdout-writer` subagent. Give it `.spec/holdout.md` and the interface from `.spec/spec.md`'s Scope. It writes their tests to `.spec/holdout/`, which a hook keeps everyone else from writing. Never mention hidden ACs or their tests in `.spec/plan.md`, and never put them in the test folders.
 
-6. Run the tests and confirm they fail for the right reason (the feature is missing), not because of a syntax error or a broken import. Fix the tests if they fail for the wrong reason. Then run `specforge trace --tests`. It checks that every AC has a test under a `test_dirs` folder, where the build looks for it. If it fails, move the tests it names under a `test_dirs` folder, or ask the user to add their folder to `test_dirs`, and run it again until it passes.
+6. Run the tests with `specforge test` and confirm they fail for the right reason (the feature is missing), not because of a syntax error or a broken import. Fix the tests if they fail for the wrong reason. Then run `specforge trace --tests`. It checks that every AC has a test under a `test_dirs` folder, where the build looks for it. If it fails, move the tests it names under a `test_dirs` folder, or ask the user to add their folder to `test_dirs`, and run it again until it passes.
 
    If `.spec/config.json` sets `test_filter`, then run `specforge red --all`. It runs each task's tests on their own, as the build will, and records nothing. It passes only if every task's tests ran and failed and every test file loaded. A test file that loads the code at the top fails to load until a later task's code exists, which would block the build; load the code inside each test instead, and run it again until it passes. Do not commit in this phase.
 

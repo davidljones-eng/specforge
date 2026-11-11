@@ -62,7 +62,7 @@ Do steps 1 and 2 once per project. From step 3 on, this is the loop for every fe
     { "test_command": ".venv/bin/pytest -q" }
     ```
 
-    You can skip this if `pytest`, `npm test` or `flutter test` already works from the project root. Specforge finds those on its own. If it cannot find a runner, commits are blocked with a message telling you to set `test_command`.
+    You can skip this if `pytest`, `npm test` or `flutter test` already works from the project root. Specforge finds those on its own. If it cannot find a runner, commits are blocked with a message telling you to set `test_command`. Claude runs the tests with `specforge test`, which runs the same command the commit gate does.
 
 3. **Start Claude Code in the project folder** with `claude`, then run `/specforge:status`. Expect it to say there is no workflow yet.
 
@@ -179,7 +179,7 @@ Optional `.spec/config.json`:
 
 - `code_dirs`: folder names (not paths) that count as source code. Default `src`, `app`, `lib`.
 - `test_dirs`: folder names that count as tests. Default `tests`. A path inside both, such as `app/tests/x.py`, counts as a test. `/specforge:plan` reads both lists (`specforge config` prints them, with the defaults filled in) and puts the source and tests under them, and `specforge trace --tests` checks that every AC has a test there, since `specforge red` and the commit gate look nowhere else. A test file directly in a code folder, such as `src/a.test.js`, counts as code; a subfolder works if you add its name, for example `__tests__`.
-- `test_command`: how to run the suite. If unset, specforge looks for `pytest`, then `npm test`, then `flutter test`. If it finds none, or the runner is not installed, commits are blocked with a message telling you to set it.
+- `test_command`: how to run the suite. If unset, specforge looks for `pytest`, then `npm test`, then `flutter test`. If it finds none, or the runner is not installed, commits are blocked with a message telling you to set it. `specforge test` runs this same command, and `specforge test AC-1 AC-2` runs `test_filter` for those ACs; the phases run the tests only that way, so they always run what the gate runs.
 - `commit_gate_scope`: `commit` (default) runs the commit gate on a temporary copy of exactly what is being committed. `worktree` runs it in the project folder instead, which is faster for slow suites but lets uncommitted files on disk make a commit pass.
 - `test_env_links`: untracked paths the tests need, such as a virtualenv or installed packages. Each one that exists is linked into the temporary copy. Default `.venv`, `venv`, `node_modules`. Paths must stay inside the project.
 - `test_filter`: optional. A command that runs only some tests, so each task can go red, then green, on its own even though the plan phase wrote tests for every task up front. When set, the commit gate runs it for the ACs of the ticked tasks in `plan.md` plus the current (first unticked) task, and runs the full `test_command` once every task is ticked. Placeholders, inserted already shell-quoted, so don't put quotes around them (a config that does is rejected): `{ac_regex}`, a regex such as `^(?:AC-1|AC-2)\b` for runners that filter by test name (`node --test --test-name-pattern {ac_regex}`, `npx jest -t {ac_regex}`), and `{pytest_k}`, an expression such as `test_ac1_ or test_ac2_` for pytest (`pytest -q -k {pytest_k}`). A test belongs to the AC its name **starts with**, so `AC-9: sends as in AC-2` is an AC-9 test and doesn't run in AC-2's scope. Jest, Vitest and Mocha match the filter against the full name, including `describe` names, so with them either keep AC tests at the top level or start the `describe` name with the AC-ID. Before running, the gate checks that every AC in scope has a test whose name starts with it (documentation files such as `tests/CLAUDE.md` don't count). That check reads the files, so it can't tell whether the runner actually ran those tests: `node --test`, Jest, Vitest and Mocha all exit 0 when the filter matches nothing. So after a filtered run passes, the gate reads the runner's summary, and blocks the commit if it shows no test ran. This works for `node --test` with its default, `spec` or `tap` reporter, Jest, Vitest and Mocha. pytest exits 5 when `-k` selects nothing, which already blocks. For other runners or reporters, only the file check applies. The current task joins the scope only when the commit changes code. A commit that changes only docs or `.spec/` files is checked against the done tasks, so the spec and plan can be committed before the current task's tests exist.
@@ -236,28 +236,28 @@ Claude: review.md written: AC-1..AC-6 all pass, no gaps.
 
 Each phase can run headless with `claude -p "/specforge:<phase>"`. The commands call the plugin's scripts through one entry point, `specforge`, which Claude Code puts on the PATH from the plugin's `bin/` folder. So a single exact rule, `Bash(specforge:*)`, allows them, with no general shell access. `specforge` has no way to approve or unapprove; those stay with the person who runs `/specforge:approve`.
 
-Run each phase with `--permission-mode dontAsk`, so anything not listed is refused instead of prompted for, and with these tools. The lists are bash (or zsh) arrays, so a rule with a space, such as `Bash(git checkout:*)`, reaches Claude Code as one argument; in a plain unquoted variable the shell splits it and the rule matches nothing. This is a Node example; for pytest use `'Bash(pytest:*)'` or `'Bash(.venv/bin/pytest:*)'` in `TEST`.
+Run each phase with `--permission-mode dontAsk`, so anything not listed is refused instead of prompted for, and with these tools. The lists are bash (or zsh) arrays, so a rule with a space, such as `Bash(git checkout:*)`, reaches Claude Code as one argument; in a plain unquoted variable the shell splits it and the rule matches nothing. There's no rule for the test runner: the phases run the tests with `specforge test`, which runs `test_command` (or the runner specforge finds), so `Bash(specforge:*)` covers it. Only the review needs one, `HOLDOUT`, and only if the spec has hidden checks, because it runs `holdout_command` itself. This one fits `"holdout_command": "node --test .spec/holdout/*.test.js"`.
 
 ```bash
 BASE=(Read Write Edit Glob Grep Agent Skill 'Bash(specforge:*)')
 GIT=('Bash(git checkout:*)' 'Bash(git switch:*)' 'Bash(git add:*)' 'Bash(git commit:*)' 'Bash(git status:*)'
      'Bash(git log:*)' 'Bash(git diff:*)' 'Bash(git branch:*)' 'Bash(git rev-parse:*)')
-TEST=('Bash(node --test:*)')
+HOLDOUT=('Bash(node --test:*)')
 APPROVE=(Read 'Bash(specforge:*)')
 
 claude -p "/specforge:spec <description>"       --permission-mode dontAsk --allowedTools "${BASE[@]}"
 claude -p "/specforge:approve spec"             --permission-mode dontAsk --allowedTools "${APPROVE[@]}"
-claude -p "/specforge:plan"                     --permission-mode dontAsk --allowedTools "${BASE[@]}" "${TEST[@]}" 'Bash(mkdir:*)'
+claude -p "/specforge:plan"                     --permission-mode dontAsk --allowedTools "${BASE[@]}" 'Bash(mkdir:*)'
 claude -p "/specforge:approve plan"             --permission-mode dontAsk --allowedTools "${APPROVE[@]}"
-claude -p "/specforge:build --mode checkpoint"  --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${TEST[@]}"
-claude -p "/specforge:build"                    --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${TEST[@]}"
-claude -p "/specforge:review"                   --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${TEST[@]}" 'Bash(git push:*)' 'Bash(gh pr create:*)'
+claude -p "/specforge:build --mode checkpoint"  --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}"
+claude -p "/specforge:build"                    --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}"
+claude -p "/specforge:review"                   --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${HOLDOUT[@]}" 'Bash(git push:*)' 'Bash(gh pr create:*)'
 ```
 
 Each build run stops at the mode's next pause (every milestone in `checkpoint`, every task in `strict`, only before risky actions in `auto`), commits the ticks in `plan.md`, and says what is next. Look at what it did; the second build line above is the same build run again for the next milestone. Running `/specforge:build` again continues from the first unticked task; that is how you approve the next milestone. To answer in the same conversation instead, continue it with the same tools:
 
 ```bash
-claude -p --continue "continue" --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${TEST[@]}"
+claude -p --continue "continue" --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}"
 ```
 
 Both ways continue from the same folder, which holds `.spec/state.json` (see [Limitations](#limitations)).
@@ -270,7 +270,7 @@ Both ways continue from the same folder, which holds `.spec/state.json` (see [Li
 - **`/plugin marketplace add` fails.** Enter it on its own line with the whole path on one line, and use an absolute path. Pasting several commands at once, or a path that wrapped, is the usual cause.
 - **Nothing is ever blocked.** Specforge only acts in projects that have a `.spec/` folder, which `/specforge:spec` creates. Also check that `python3` is on your PATH, because every hook runs through it, and that you reloaded or restarted after installing.
 - **Everything is blocked, with "state.json is corrupt" or "missing".** Run `/specforge:status` to see the error. If `.spec/state.json` was damaged, delete the `.spec` folder and start again with `/specforge:spec`.
-- **Commits are blocked with "test runner not found" or "no test command found".** Set `test_command` in `.spec/config.json` (see Configuration), and make sure the runner is installed in the environment Claude runs commands in.
+- **Commits are blocked, or `specforge test` stops, with "test runner not found" or "no test command found".** Set `test_command` in `.spec/config.json` (see Configuration), and make sure the runner is installed in the environment Claude runs commands in.
 - **A commit is blocked and you meant to commit failing tests.** Start the commit message with `test:`.
 - **`/specforge:plan` or `/specforge:build` refuses.** It is telling you which approval is missing. Review the file it names and run the `/specforge:approve` command it gives.
 
