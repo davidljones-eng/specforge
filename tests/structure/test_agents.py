@@ -110,7 +110,7 @@ def test_spec_reviewer_suggests_but_never_blocks_on_size(root):
     _, body, _ = load(root, "spec-reviewer")
     check = next(l for l in body.splitlines() if l.startswith("9. "))
     low = check.lower()
-    assert "spec_size.py" in check and "budget" in low
+    assert "specforge spec-size" in check and "budget" in low
     assert "suggestion" in low and "never" in low and "blocking" in low
     assert "restate" in low
 
@@ -166,7 +166,7 @@ def test_spec_reviewer_blocks_uncovered_source_checks(root):
     # M9-AC2
     _, body, _ = load(root, "spec-reviewer")
     check = next(l for l in body.splitlines() if l.startswith("10. "))
-    assert "Uncovered checks" in check and "spec_size.py" in check
+    assert "Uncovered checks" in check and "specforge spec-size" in check
     assert "**blocking**" in check
 
 

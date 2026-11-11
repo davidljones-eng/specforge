@@ -186,6 +186,8 @@ def test_bash_writes_to_state_json_blocked(tmp_path, command):
         "grep phase .spec/state.json",
         "git status",
         "python3 scripts/state.py get",
+        "specforge state get",
+        "specforge state set-phase build",
         "python3 scripts/state.py set-phase build",
         "git commit -m 'feat: approve button'",
         "grep -rn approve src",
@@ -212,6 +214,8 @@ def test_other_bash_commands_allowed(tmp_path, command):
         "python3 -c 'import state; state.approve(\".\", \"spec\")'",
         "python3 -c 'from state import approve; approve(\".\", \"plan\")'",
         "claude -p '/specforge:approve spec'",
+        "specforge state approve spec",
+        "specforge  state 'approve' plan",
         "echo /specforge:approve plan | claude -p",
     ],
 )
