@@ -256,3 +256,137 @@ def test_messages_name_specforge_red_not_the_script(proj, setup):
     assert code == 1 and "red.py" not in message
     if setup != "none":
         assert "specforge red" in message
+
+
+# ---------- M16-AC3: a test file that failed to load ----------
+
+from test_test_gate import NODE_SPEC_LOAD, PYTEST_COLLECT  # noqa: E402
+
+
+@pytest.mark.parametrize("output,exit_code", [(NODE_SPEC_LOAD, 1), (PYTEST_COLLECT, 2)])
+def test_a_test_file_that_failed_to_load_records_nothing(proj, tmp_path_factory, output, exit_code):
+    # pytest exits 2 on a collection error, which red used to take as RED
+    out = tmp_path_factory.mktemp("load") / "out.txt"
+    out.write_text(output)
+    set_config(proj, test_filter=f"cat '{out}'; exit {exit_code} #{{ac_regex}}")
+    code, message = red.run(proj)
+    assert code == 1 and red_of(proj) == {}
+    assert "failed to load" in message and "inside each test" in message
+
+
+def test_the_temporary_folder_is_left_out_of_the_message(proj, tmp_path_factory):
+    out = tmp_path_factory.mktemp("load") / "out.txt"
+    set_config(proj, test_filter=(
+        f"printf \"Error [ERR_MODULE_NOT_FOUND]: Cannot find module '%s/src/b.js'\\n"
+        f"✖ tests/b.test.js (1ms)\\n\" \"$PWD\"; exit 1 #{{ac_regex}}"))
+    code, message = red.run(proj)
+    assert code == 1 and "Cannot find module 'src/b.js'" in message
+    assert "specforge-red-" not in message
+
+
+# ---------- M16-AC2: specforge red --all, at plan time ----------
+
+ALL_PLAN = """## Tasks
+- [ ] T1 (M1, AC-1): slugify
+- [ ] T2 (M2, AC-2): truncate
+- [ ] T3 (M2): docs
+"""
+
+LAYOUTS = {
+    "one file, top-level import": {"tests/s.test.js": """import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { slugify, truncate } from '../src/s.js';
+test('AC-1 slug', () => assert.equal(slugify('A B'), 'a-b'));
+test('AC-2 trunc', () => assert.equal(truncate('abcdef', 4), 'abc…'));
+"""},
+    "two files, top-level imports": {
+        "tests/slug.test.js": """import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { slugify } from '../src/slug.js';
+test('AC-1 slug', () => assert.equal(slugify('A B'), 'a-b'));
+""",
+        "tests/trunc.test.js": """import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { truncate } from '../src/trunc.js';
+test('AC-2 trunc', () => assert.equal(truncate('abcdef', 4), 'abc…'));
+"""},
+    "loaded inside each test": {"tests/s.test.js": """import { test } from 'node:test';
+import assert from 'node:assert/strict';
+test('AC-1 slug', async () => {
+  const { slugify } = await import('../src/s.js');
+  assert.equal(slugify('A B'), 'a-b');
+});
+test('AC-2 trunc', async () => {
+  const { truncate } = await import('../src/s.js');
+  assert.equal(truncate('abcdef', 4), 'abc…');
+});
+"""},
+}
+
+
+def plan_project(tmp_path, files, cfg=None):
+    (tmp_path / ".spec").mkdir()
+    state.create(tmp_path)
+    state.approve(tmp_path, "spec")  # the plan phase: the plan isn't approved yet
+    (tmp_path / ".spec" / "plan.md").write_text(ALL_PLAN)
+    (tmp_path / "package.json").write_text('{ "type": "module" }\n')
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    set_config(tmp_path, **(cfg if cfg is not None else
+               {"test_filter": "node --test --test-name-pattern {ac_regex} tests/*.test.js"}))
+    return tmp_path
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+@pytest.mark.parametrize("layout,ok", [("one file, top-level import", False),
+                                       ("two files, top-level imports", False),
+                                       ("loaded inside each test", True)])
+def test_red_all_passes_only_when_every_tasks_tests_load_and_fail(tmp_path, layout, ok):
+    proj = plan_project(tmp_path, LAYOUTS[layout])
+    code, message = red.check_all(proj)
+    assert code == (0 if ok else 1), message
+    assert state.red_tasks(state.read(proj)) == {}  # records nothing
+    if ok:
+        assert "T1" in message and "T2" in message
+    else:
+        assert "failed to load" in message and "tests/" in message and "T1" in message
+        assert "inside each test" in message
+
+
+def test_red_all_runs_each_task_on_the_working_tree_without_a_commit(tmp_path, tmp_path_factory):
+    got = tmp_path_factory.mktemp("o") / "got.txt"
+    proj = plan_project(tmp_path, {}, {"test_filter": f"printf '%s\\n' {{ac_regex}} >> '{got}'; exit 1"})
+    for ac in ("AC-1", "AC-2"):
+        (proj / "tests").mkdir(exist_ok=True)
+        (proj / "tests" / f"{ac}.test.js").write_text(f'test("{ac}: x", () => {{}});\n')
+    code, message = red.check_all(proj)
+    assert code == 0, message
+    assert got.read_text().splitlines() == [test_gate.ac_regex(["AC-1"]), test_gate.ac_regex(["AC-2"])]
+
+
+def test_red_all_reports_tests_that_already_pass_or_ran_nothing(tmp_path):
+    proj = plan_project(tmp_path, {"tests/a.test.js": 'test("AC-1: x", () => {});\ntest("AC-2: y", () => {});\n'},
+                       {"test_filter": "exit 0 #{ac_regex}"})
+    code, message = red.check_all(proj)
+    assert code == 1 and "already pass" in message
+
+
+def test_red_all_without_a_test_filter_has_nothing_to_check(tmp_path):
+    proj = plan_project(tmp_path, {}, {})
+    code, message = red.check_all(proj)
+    assert code == 0 and "test_filter" in message
+
+
+def test_red_all_names_a_task_with_no_test(tmp_path):
+    proj = plan_project(tmp_path, {"tests/a.test.js": 'test("AC-1: x", () => {});\n'},
+                       {"test_filter": "exit 1 #{ac_regex}"})
+    code, message = red.check_all(proj)
+    assert code == 1 and "T2" in message and "AC-2" in message
+
+
+def test_main_all(tmp_path, monkeypatch, capsys):
+    proj = plan_project(tmp_path, {}, {})
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(proj))
+    assert red.main(["--all"]) == 0
+    assert "test_filter" in capsys.readouterr().out

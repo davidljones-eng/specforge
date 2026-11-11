@@ -1362,3 +1362,122 @@ def test_a_missing_test_message_names_the_folders_and_where_it_was_found(proj, m
     err = capsys.readouterr().err
     assert "AC-24" in err and "tests/" in err and "test/x.test.js" in err
     assert "test_dirs" in err and ".spec/config.json" in err
+
+
+# ---------- M16: a test file that failed to load ----------
+# Real output, trimmed of stack frames: Node 24 (spec and tap) and pytest 9.
+
+NODE_SPEC_LOAD = """✔ AC-1 slug (1.270904ms)
+node:internal/modules/esm/resolve:272
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/work/proj/src/truncate.js' imported from /work/proj/tests/truncate.test.js
+    at finalizeResolution (node:internal/modules/esm/resolve:272:11) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///work/proj/src/truncate.js'
+}
+
+Node.js v24.21.0
+✖ tests/truncate.test.js (52.334057ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+
+✖ failing tests:
+
+test at tests/truncate.test.js:1:1
+✖ tests/truncate.test.js (52.334057ms)
+  'test failed'
+"""
+
+NODE_TAP_LOAD = """TAP version 13
+# Subtest: AC-1 slug
+ok 1 - AC-1 slug
+  ---
+  duration_ms: 1.969742
+  ...
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/work/proj/src/truncate.js' imported from /work/proj/tests/truncate.test.js
+#     at finalizeResolution (node:internal/modules/esm/resolve:272:11)
+# Node.js v24.21.0
+# Subtest: tests/truncate.test.js
+not ok 2 - tests/truncate.test.js
+  ---
+  failureType: 'testCodeFailure'
+  error: 'test failed'
+  ...
+1..2
+# tests 2
+# pass 1
+# fail 1
+"""
+
+NODE_SPEC_EXPORT = """file:///work/proj/tests/strtools.test.js:3
+import { slugify, truncate } from '../src/strtools.js';
+                  ^^^^^^^^
+SyntaxError: The requested module '../src/strtools.js' does not provide an export named 'truncate'
+
+Node.js v24.21.0
+✖ tests/strtools.test.js (49.287706ms)
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+"""
+
+PYTEST_COLLECT = """
+==================================== ERRORS ====================================
+___________________ ERROR collecting tests/test_strtools.py ____________________
+ImportError while importing test module '/work/proj/tests/test_strtools.py'.
+Traceback:
+tests/test_strtools.py:1: in <module>
+    from src.strtools import slugify, truncate
+E   ModuleNotFoundError: No module named 'src.strtools'
+=========================== short test summary info ============================
+ERROR tests/test_strtools.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.10s
+"""
+
+NODE_SPEC_AC_FAIL = """✖ AC-1 slug (2.1ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+
+✖ failing tests:
+
+test at tests/strtools.test.js:6:1
+✖ AC-1 slug (2.1ms)
+"""
+
+
+@pytest.mark.parametrize("output,file,error", [
+    (NODE_SPEC_LOAD, "tests/truncate.test.js", "Cannot find module '/work/proj/src/truncate.js'"),
+    (NODE_TAP_LOAD, "tests/truncate.test.js", "Cannot find module '/work/proj/src/truncate.js'"),
+    (NODE_SPEC_EXPORT, "tests/strtools.test.js", "does not provide an export named 'truncate'"),
+    (PYTEST_COLLECT, "tests/test_strtools.py", "No module named 'src.strtools'"),
+])
+def test_load_failures_names_the_file_and_the_error(output, file, error):
+    got = test_gate.load_failures(output)
+    assert [f for f, _ in got] == [file]
+    assert error in got[0][1]
+
+
+@pytest.mark.parametrize("output", [NODE_SPEC_AC_FAIL, NODE_TAP_NONE, NODE_SPEC_NONE, ""])
+def test_a_failing_test_or_an_empty_run_is_not_a_load_failure(output):
+    assert test_gate.load_failures(output) == []
+
+
+def test_a_commit_blocked_by_a_file_that_cannot_load_says_so(proj, monkeypatch, capsys, tmp_path_factory):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-24", "AC-4")
+    out = tmp_path_factory.mktemp("o") / "out.txt"
+    out.write_text(NODE_SPEC_LOAD)
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": f"cat '{out}'; exit 1 #{{ac_regex}}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    err = capsys.readouterr().err
+    assert "tests/truncate.test.js" in err and "failed to load" in err
+    assert "inside each test" in err and "tell the user" in err.lower()
