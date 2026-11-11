@@ -1195,7 +1195,8 @@ def red_gitproj(scoped_gitproj, tmp_path_factory, monkeypatch):
 def test_a_code_commit_without_red_for_the_current_task_is_blocked(red_gitproj, monkeypatch, capsys):
     assert run_gate(monkeypatch, red_gitproj, git_commit_event(red_gitproj)) == 2
     err = capsys.readouterr().err
-    assert "T2" in err and "no failing test recorded" in err and "red.py" in err
+    assert "T2" in err and "no failing test recorded" in err
+    assert "`specforge red`" in err and "python3" not in err  # M13: the command a narrow allow rule permits
 
 
 def test_a_code_commit_with_red_for_the_current_task_is_allowed(red_gitproj, monkeypatch):
