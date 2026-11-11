@@ -35,6 +35,14 @@ _WRITE_HINT = re.compile(
     r"|\b(python3?|perl|ruby|node)\b)"
 )
 _HARMLESS_REDIRECT = re.compile(r"\d*>&\d*-?|\d*>\s*/dev/null")
+# M17: git can put back an older config.json too.
+_GIT_RESTORE = re.compile(r"\bgit\s+(?:checkout|restore)\b")
+_CONFIG_LOCKED = (
+    "specforge: .spec/config.json can't be changed once the plan is approved: its settings "
+    "(the test command, the filter, the folders, red first) are part of that approval. Ask "
+    "the user. They can edit it themselves and run /specforge:approve plan again, or run "
+    "/specforge:unapprove plan, have it changed, and approve the plan again."
+)
 
 # M5, M6: approvals are recorded and withdrawn only by approve_hook.py, from a
 # prompt the user submits. Quotes and backslashes are dropped first, so
@@ -73,6 +81,20 @@ def _target_parts(event, project: Path):
         return None
 
 
+def _plan_approved(project: Path) -> bool:
+    try:
+        return state.read(project)["plan_approved"]
+    except (state.StateMissingError, state.StateCorruptError):
+        return False
+
+
+def _config_change_reason(project: Path):
+    try:
+        return state.config_change_reason(project, state.read(project))
+    except (state.StateMissingError, state.StateCorruptError):
+        return None
+
+
 def _evaluate_bash(event, project: Path):
     tool_input = event.get("tool_input")
     command = tool_input.get("command") if isinstance(tool_input, dict) else None
@@ -81,6 +103,10 @@ def _evaluate_bash(event, project: Path):
     bare = re.sub(r"[\"'\\]", "", command)
     if _APPROVE_COMMAND.search(bare) or (_STATE_MODULE.search(bare) and _APPROVE.search(bare)):
         return f"{_ONLY_THE_USER}; ask them to run it."
+    if "config.json" in bare and _plan_approved(project):
+        cleaned = _HARMLESS_REDIRECT.sub("", command)
+        if _WRITE_HINT.search(cleaned) or _GIT_RESTORE.search(cleaned):
+            return _CONFIG_LOCKED
     if "state.json" not in command:
         return None
     if _WRITE_HINT.search(_HARMLESS_REDIRECT.sub("", command)):
@@ -231,8 +257,16 @@ def evaluate(event, project_dir):
             "Use /specforge:approve spec|plan to record an approval, or "
             "/specforge:unapprove spec|plan to withdraw one."
         )
+    if parts == (".spec", "config.json") and _plan_approved(project):
+        return _CONFIG_LOCKED
     if parts[0] == ".spec":
         return None
+
+    rel = "/".join(parts)
+    # M17: the folder lists may be what changed, so no file outside .spec/ is trusted.
+    reason = _config_change_reason(project)
+    if reason:
+        return f"specforge: blocked edit to {rel}. {reason.removeprefix('specforge: ')}"
 
     try:
         cfg = config.load(project)
@@ -243,7 +277,6 @@ def evaluate(event, project_dir):
     if needs == OPEN:
         return None
 
-    rel = "/".join(parts)
     try:
         current = state.read(project)
     except state.StateMissingError:

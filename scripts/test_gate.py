@@ -696,6 +696,10 @@ def evaluate(event, project_dir):
         if test_only:
             return None
         return f"specforge: commit blocked. .spec/state.json is corrupt ({e})."
+    # M17: every commit, test: ones included; the gate would run the changed settings.
+    changed = state.config_change_reason(project, current)
+    if changed:
+        return f"specforge: commit blocked. {changed.removeprefix('specforge: ')}"
     if not (current["spec_approved"] and current["plan_approved"]):
         return unapproved_code_reason(project, command, current)
     reason = aware_code_reason(project, command, event.get("session_id"))

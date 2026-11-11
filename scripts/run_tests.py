@@ -8,7 +8,9 @@ The phase commands run the tests only this way, so a headless run needs no
 rule for the runner: Bash(specforge:*) covers it, and the model runs exactly
 what the gate will. This gives no access the gate doesn't already use: the
 commit hook runs test_command on every commit, and `specforge red` runs
-test_filter. It runs on the working folder, not on a copy of the commit.
+test_filter. It runs on the working folder, not on a copy of the commit. Once
+the plan is approved, it refuses while config.json differs from what was
+approved (M17), as the gates do.
 """
 import argparse
 import os
@@ -18,6 +20,7 @@ import subprocess
 import sys
 
 import config
+import state
 import test_gate
 
 _AC_ID = re.compile(r"^AC-\d+$")
@@ -33,6 +36,13 @@ def main(argv=None, run=subprocess.run, which=shutil.which) -> int:
         print(f"specforge: {', '.join(bad)} isn't an AC-ID. usage: specforge test [AC-ID ...]")
         return 2
     project = args.project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    try:
+        changed = state.config_change_reason(project, state.read(project))
+    except (state.StateMissingError, state.StateCorruptError):
+        changed = None  # no workflow state: nothing was approved
+    if changed:
+        print(changed)  # M17: don't run a command nobody approved
+        return 1
     try:
         cfg = config.load(project)
     except config.ConfigError as e:

@@ -153,9 +153,10 @@ def test_edit_hook_blocks_then_allows_when_run_as_a_real_process(hooks_file, roo
 
 def test_commit_hook_blocks_failing_tests_when_run_as_a_real_process(hooks_file, root, tmp_path):
     state.create(tmp_path)
+    # set before the plan is approved: M17 refuses a config changed after approval
+    (tmp_path / ".spec" / "config.json").write_text(json.dumps({"test_command": "exit 1"}))
     state.approve(tmp_path, "spec")
     state.approve(tmp_path, "plan")
-    (tmp_path / ".spec" / "config.json").write_text(json.dumps({"test_command": "exit 1"}))
     ((_, hook),) = find(hooks_file, "PreToolUse", "test_gate.py")
     event = {"tool_name": "Bash", "tool_input": {"command": "git commit -m 'feat: x'"},
              "cwd": str(tmp_path)}

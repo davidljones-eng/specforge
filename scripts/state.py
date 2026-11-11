@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Workflow state for specforge, stored in <project>/.spec/state.json."""
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -23,8 +24,11 @@ DEFAULT_STATE = {
 # still reads. "red" maps a task ID to the commit where red.py saw its tests
 # fail (M4); only red.py writes it. "aware_sessions" lists the sessions that
 # ran /specforge:spec, /plan or /review and so have seen hidden checks (M11);
-# only approve_hook.py writes it.
-OPTIONAL_KEYS = ("red", "aware_sessions")
+# only approve_hook.py writes it. "approved_config" is the fingerprint of
+# .spec/config.json when the plan was approved (M17); approving the plan writes
+# it, and it goes when the plan approval does.
+OPTIONAL_KEYS = ("red", "aware_sessions", "approved_config")
+_FINGERPRINT = re.compile(r"^(none|[0-9a-f]{64})$")
 _MAX_SESSIONS = 200
 _TASK_ID = re.compile(r"^T\d+$")
 
@@ -78,6 +82,10 @@ def _validate(data):
         sessions = data["aware_sessions"]
         if not isinstance(sessions, list) or not all(isinstance(s, str) and s for s in sessions):
             raise ValueError("aware_sessions must be a list of session IDs")
+    if "approved_config" in data:
+        value = data["approved_config"]
+        if not isinstance(value, str) or not _FINGERPRINT.match(value):
+            raise ValueError('approved_config must be "none" or a sha256 hex digest')
 
 
 def _write(project_dir, data):
@@ -124,6 +132,8 @@ def update(project_dir, **changes) -> dict:
     if unknown:
         raise ValueError(f"unknown state keys: {sorted(unknown)}")
     data.update(changes)
+    if not data["plan_approved"]:
+        data.pop("approved_config", None)  # M17: it belongs to the approval
     _validate(data)
     _write(project_dir, data)
     return data
@@ -141,6 +151,8 @@ def approve(project_dir, target) -> dict:
         data = read(project_dir)
         data.pop("red", None)
         data["plan_approved"] = True
+        # M17: the settings in config.json are approved with the plan.
+        data["approved_config"] = config_fingerprint(project_dir)
         _validate(data)
         _write(project_dir, data)
         return data
@@ -158,6 +170,32 @@ def unapprove(project_dir, target) -> dict:
     if target == "plan":
         return update(project_dir, plan_approved=False, phase="plan")
     return update(project_dir, spec_approved=False, plan_approved=False, phase="spec")
+
+
+def config_fingerprint(project_dir) -> str:
+    """sha256 of .spec/config.json's bytes, or "none" when there is no such file."""
+    path = Path(project_dir) / ".spec" / "config.json"
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return "none"
+
+
+def config_change_reason(project_dir, data):
+    """Why the gates refuse: config.json no longer matches what was approved with
+    the plan (M17). None while it matches, before the plan is approved, or for a
+    state from before M17, which has no fingerprint."""
+    approved = data.get("approved_config")
+    if not data.get("plan_approved") or approved is None:
+        return None
+    if config_fingerprint(project_dir) == approved:
+        return None
+    return (
+        "specforge: .spec/config.json has changed since the plan was approved, and its "
+        "settings (the test command, the filter, the folders, red first) are part of that "
+        "approval. Ask the user to undo the change, or to run /specforge:approve plan "
+        "again, which approves the new settings."
+    )
 
 
 def red_tasks(data) -> dict:
