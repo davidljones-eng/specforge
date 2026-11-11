@@ -174,7 +174,8 @@ Optional `.spec/config.json`:
   "test_filter": "pytest -q -k {pytest_k}",
   "source_fidelity": true,
   "red_first": true,
-  "ac_budget": 15
+  "ac_budget": 15,
+  "holdout_command": "node --test .spec/holdout/*.test.js"
 }
 ```
 
@@ -187,6 +188,7 @@ Optional `.spec/config.json`:
 - `source_fidelity`: `true` (default) makes `/specforge:spec` save your description and answers word for word to `.spec/source.md`, copy its quoted strings and numbers into the spec exactly, carry its constraints (stack, dependencies, storage) into the spec's Scope or Out of Scope, and have `spec-reviewer` treat any change to them, or a constraint kept only in `requirement.md`, as blocking. `false` gives the original spec phase: no `source.md` and no fidelity check. Set it before running `/specforge:spec`.
 - `red_first`: `true` (default) blocks a task's code until `red.py` has seen its tests fail, but only when `test_filter` is set (see [Gates](#gates)). A task's AC-IDs are the ones in the parentheses after its ID in `plan.md` (`T13 (M4, AC-16): …`). `false` keeps the per-task test scope without the red-first check.
 - `ac_budget`: `15` (default). When the spec has more ACs than this, `spec-reviewer` suggests splitting the feature or merging ACs that only restate others. It's a suggestion for you, never a blocking issue, and Claude doesn't cut ACs on its own to meet it. `/specforge:spec`'s summary always shows the size, from `scripts/spec_size.py`: for example `6 source checks → 21 ACs (budget 15). C1: 4, C2: 1, … Over budget by 6.` `null` turns the suggestion off. The line also names any source check with no AC and no Out of Scope entry (`Uncovered checks: C4.`), which the reviewer treats as blocking.
+- `holdout_command`: `null` (default). How `/specforge:review` runs the holdout tests in `.spec/holdout/` when the spec has hidden ACs, for example `node --test .spec/holdout/*.test.js`. Name the files: Node 24 won't take a folder. The results go in `review.md`'s Holdout table and into the Source Checks roll-up.
 
 ## Example session
 

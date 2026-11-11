@@ -26,6 +26,9 @@ DEFAULT_CONFIG = {
     # More ACs than this makes spec-reviewer suggest splitting the feature or
     # merging ACs (M8). null turns the suggestion off; spec_size.py still counts.
     "ac_budget": 15,
+    # How /specforge:review runs the holdout tests in .spec/holdout/ (M11), for
+    # example "node --test .spec/holdout/*.test.js". null: they aren't run.
+    "holdout_command": None,
 }
 
 FILTER_PLACEHOLDERS = ("{ac_regex}", "{pytest_k}")
@@ -117,4 +120,7 @@ def load(project_dir) -> dict:
     budget = cfg["ac_budget"]
     if budget is not None and (isinstance(budget, bool) or not isinstance(budget, int) or budget < 1):
         raise ConfigError("ac_budget must be a positive whole number, or null to turn it off")
+    hold = cfg["holdout_command"]
+    if hold is not None and (not isinstance(hold, str) or not hold.strip()):
+        raise ConfigError("holdout_command must be a non-empty command, or null")
     return cfg

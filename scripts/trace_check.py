@@ -13,6 +13,7 @@ import re
 import sys
 from pathlib import Path
 
+import holdout
 import spec_size
 
 _NONE = {"", "—", "–", "-", "none", "n/a"}
@@ -31,7 +32,7 @@ def _ac_tables(text):
     i = 0
     while i < len(lines):
         line = lines[i].strip()
-        if line.startswith("|") and _cells(line)[:1] and _cells(line)[0].lower() == "ac":
+        if line.startswith("|") and _cells(line)[:1] and _cells(line)[0].lower() in ("ac", "hac"):
             header, rows = _cells(line), []
             i += 1
             if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i].strip()):
@@ -124,17 +125,23 @@ def rollup(project):
     if not checks:
         return 0, "No source checks in .spec/source.md, so there is nothing to roll up."
 
-    found = _find(review, "Status")
-    if found is None:
+    # The AC coverage table, and the Holdout table for hidden ACs (M11)
+    statuses, seen_status = {}, False
+    for header, rows in _ac_tables(review):
+        names = [h.lower() for h in header]
+        if "status" not in names:
+            continue
+        seen_status = True
+        col, width = names.index("status"), len(header)
+        for row in rows:
+            ac = row[0].replace("*", "") if row else ""
+            if re.fullmatch(r"H?AC-\d+", ac):
+                # Status is usually last and code cells may hold stray pipes, so count from the right
+                statuses[ac] = _status(row[col - width] if len(row) >= width - col else "")
+    if not seen_status:
         return 1, "review.md's coverage table has no Status column."
-    col, width, rows = found
-    statuses = {}
-    for row in rows:
-        if row and re.fullmatch(r"AC-\d+", row[0].replace("*", "")):
-            # Status is usually last and code cells may hold stray pipes, so count from the right
-            statuses[row[0].replace("*", "")] = _status(row[col - width] if len(row) >= width - col else "")
 
-    tags = spec_size._ac_tags(spec)
+    tags = {**spec_size._ac_tags(spec), **holdout.hidden_acs(project)}
     out_of_scope = spec_size._out_of_scope_ids(spec)
     lines = ["| Check | ACs | Status |", "|---|---|---|"]
     for check in checks:
