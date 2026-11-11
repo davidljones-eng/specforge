@@ -150,3 +150,11 @@ def test_holdout_template_has_hidden_acs(templates):
     text = read(templates / "holdout.md")
     assert "hidden acceptance criteria" in headings(text)
     assert "HAC-1" in text and "[C" in text
+
+
+def test_review_template_has_a_holdout_section(templates):
+    # M11-AC4
+    text = read(templates / "review.md")
+    assert "holdout" in headings(text)
+    table = section(text, "holdout")
+    assert "| HAC |" in table and "Status" in table

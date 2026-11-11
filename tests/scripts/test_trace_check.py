@@ -149,3 +149,36 @@ def test_main_plan_and_rollup(tmp_path, monkeypatch, capsys):
 def test_main_needs_a_mode(tmp_path):
     with pytest.raises(SystemExit):
         trace.main([])
+
+
+# ---------- hidden ACs in the roll-up (M11-AC4) ----------
+
+HOLDOUT_MD = "## Hidden Acceptance Criteria\n- HAC-1 [C3]: a\n- HAC-2 [C4]: b\n"
+REVIEW_WITH_HOLDOUT = REVIEW.replace("| AC-5 | — | — | missing |", "| AC-5 | `src/a.js:5` | `t::AC-5` | pass |") + """
+## Holdout
+| HAC | Test | Status |
+|-----|------|--------|
+| HAC-1 | `.spec/holdout/h.test.js::HAC-1: a` | fail |
+"""
+
+
+def with_holdout(tmp_path, review=REVIEW_WITH_HOLDOUT):
+    proj = project(tmp_path, review=review)
+    (proj / ".spec" / "holdout.md").write_text(HOLDOUT_MD)
+    return proj
+
+
+def test_hidden_acs_roll_up_with_their_checks(tmp_path):
+    rows = trace.rollup(with_holdout(tmp_path))[1].splitlines()[2:]
+    assert "| C3 | AC-5, HAC-1 | fail |" in rows       # the hidden test failed
+    assert "| C4 | HAC-2 | missing |" in rows           # no row in the Holdout table
+
+
+def test_a_hidden_ac_that_passes_counts(tmp_path):
+    review = REVIEW_WITH_HOLDOUT.replace("| fail |\n", "| pass |\n")
+    assert "| C3 | AC-5, HAC-1 | pass |" in trace.rollup(with_holdout(tmp_path, review))[1]
+
+
+def test_without_a_holdout_table_hidden_acs_are_missing(tmp_path):
+    review = REVIEW.replace("| AC-5 | — | — | missing |", "| AC-5 | x | y | pass |")
+    assert "| C3 | AC-5, HAC-1 | missing |" in trace.rollup(with_holdout(tmp_path, review))[1]

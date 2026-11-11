@@ -388,3 +388,12 @@ def test_plan_has_the_holdout_writer_write_hidden_tests(root):
 def test_build_says_to_start_fresh_when_the_conversation_saw_hidden_checks(root):
     _, body, _ = load(root, "build")
     assert "/clear" in body and "hidden" in body
+
+
+def test_review_runs_the_holdout_tests_before_the_rollup(root):
+    # M11-AC4
+    _, body, _ = load(root, "review")
+    assert "holdout_command" in body and ".spec/holdout.md" in body
+    step = next(l for l in body.splitlines() if "holdout_command" in l)
+    assert "Holdout" in step
+    assert body.index("holdout_command") < body.index("--rollup")

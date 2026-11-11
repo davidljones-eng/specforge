@@ -154,3 +154,8 @@ def test_readme_explains_holdout_compartments(readme):
     gates = section(readme, "gates")
     assert "holdout.md" in gates and "/clear" in gates
     assert "holdout-writer" in readme
+
+
+def test_readme_documents_the_holdout_command(readme):
+    # M11-AC4
+    assert "holdout_command" in section(readme, "configuration")

@@ -21,6 +21,7 @@ def test_defaults_when_no_config_file(tmp_path):
         "source_fidelity": True,
         "red_first": True,
         "ac_budget": 15,
+        "holdout_command": None,
     }
 
 
@@ -189,4 +190,19 @@ def test_ac_budget_accepts_a_positive_integer_or_null(tmp_path, value):
 def test_ac_budget_rejects_anything_else(tmp_path, value):
     write(tmp_path, json.dumps({"ac_budget": value}))
     with pytest.raises(config.ConfigError, match="ac_budget"):
+        config.load(tmp_path)
+
+
+# ---------- holdout command (M11-AC4) ----------
+
+@pytest.mark.parametrize("value", ["node --test .spec/holdout/*.test.js", None])
+def test_holdout_command_is_a_command_or_null(tmp_path, value):
+    write(tmp_path, json.dumps({"holdout_command": value}))
+    assert config.load(tmp_path)["holdout_command"] == value
+
+
+@pytest.mark.parametrize("value", ["", "   ", 5, ["node"]])
+def test_holdout_command_rejects_anything_else(tmp_path, value):
+    write(tmp_path, json.dumps({"holdout_command": value}))
+    with pytest.raises(config.ConfigError, match="holdout_command"):
         config.load(tmp_path)
