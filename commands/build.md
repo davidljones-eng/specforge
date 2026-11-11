@@ -35,6 +35,10 @@ The mode decides when you stop and ask the user to approve before continuing:
 
 2. Create a feature branch with `git checkout -b feature/<short-name>` from the spec title, unless you are already on a feature branch. Never commit to main or master.
 
+   **Continuing an earlier build.** If tasks in `.spec/plan.md` are already ticked, this run continues a build that stopped earlier: at a pause, after a failure, or cut off. Start at the first unticked task and don't redo ticked ones. Being run again is the user's go-ahead for the next milestone (or the next task, in strict mode), so don't pause before starting it.
+
+   Run `git status`. Changes an earlier session left uncommitted are unfinished work on the first unticked task: check them against that task, run the tests, and finish and commit them through the usual steps. Never discard them: no `git checkout -- <file>`, `git restore`, `git stash` or `git reset`. If they don't belong to that task, stop and ask the user.
+
 3. Work through the tasks in `.spec/plan.md` in order. For each task, follow red, green, refactor:
    - **RED**: write the failing test for the task's AC-ID (or confirm the planned one exists), run it, and show that it fails for the right reason. Commit with a `test:` prefix. If `.spec/config.json` sets `test_filter`, then run `specforge red`. It runs the current task's tests as committed and records RED only if they fail; until then the hooks block the task's code. If it says the tests already pass, either the tests are too weak (write a stricter failing test, commit it with `test:`, and run it again) or the behavior is already there (tick the task with no code change and say so in your summary). Never weaken or skip a test to get past it.
    - **GREEN**: write the minimum code to pass. Nothing extra. Run the **full** suite. Commit with a `feat:` prefix.
@@ -45,7 +49,9 @@ The mode decides when you stop and ask the user to approve before continuing:
 
    **Per-task scope.** When the plan phase has already written tests for later tasks, the full suite keeps failing until the last task is done. If `.spec/config.json` sets `test_filter`, the commit hook runs only the tests for the ticked tasks plus the current task (the first unticked one), so each task's `feat:` commit can pass on its own. Tests for later tasks are expected to fail until their task comes up; that is not a reason to batch tasks together. If `test_filter` is not set and the full suite cannot pass yet, tell the user and suggest setting it (for example `"test_filter": "node --test --test-name-pattern {ac_regex}"` or `"pytest -q -k {pytest_k}"`) rather than committing several tasks at once.
 
-5. Pause for approval according to the mode above, summarizing what was done and what is next.
+5. **Pause** for approval according to the mode above. Summarize what was done and what is next, then say how to go on: reply to continue, or run `/specforge:build` again, in this session or a new one (headless: `claude -p "/specforge:build"`). A new run starts at the first unticked task. Then end your turn; don't wait or ask in any other way.
+
+   Before you stop, for any reason (a pause, a failure, a question, or the end of the build), commit the ticks in `.spec/plan.md` that aren't committed yet, as a `chore:` commit of `.spec/plan.md` alone. The commit hook allows it: it tests exactly what is committed, which is your last `feat:` commit plus the ticks, and with `test_filter` set a commit that changes no code runs only the done tasks' tests. The ticks are how the next run knows where to start, so they belong in the branch's history next to the code.
 
 ## Rules
 

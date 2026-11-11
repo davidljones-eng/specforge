@@ -78,7 +78,7 @@ Do steps 1 and 2 once per project. From step 3 on, this is the loop for every fe
 
 8. **Review the plan and the tests**, then run `/specforge:approve plan`. Now the source folders are open and `/specforge:build` can run.
 
-9. **Build.** Run `/specforge:build`, or choose how often it pauses with `/specforge:build --mode strict` (every task), `--mode checkpoint` (every milestone, the default) or `--mode auto` (only risky actions). Expect a `feature/...` branch and, per task, a `test:` commit, a `feat:` commit and, if needed, a `refactor:` commit. Answer its approval questions when it pauses. If the same test fails 3 times, it stops and reports.
+9. **Build.** Run `/specforge:build`, or choose how often it pauses with `/specforge:build --mode strict` (every task), `--mode checkpoint` (every milestone, the default) or `--mode auto` (only risky actions). Expect a `feature/...` branch and, per task, a `test:` commit, a `feat:` commit and, if needed, a `refactor:` commit. When it pauses, it commits its progress and stops; reply to continue, or run `/specforge:build` again, now or in a new session, and it picks up at the first unticked task in `plan.md`. If the same test fails 3 times, it stops and reports.
 
 10. **Know what gets blocked.** While the suite fails, any commit that is not a `test:` commit is blocked and Claude is shown the test output. Direct edits to `.spec/state.json` are always blocked. Claude will read the reason and fix the problem, so you rarely have to step in.
 
@@ -132,7 +132,7 @@ If `.spec/spec.md` changes after approval, the spec version goes up and both app
 | `/specforge:unapprove spec\|plan` | Withdraws your approval, without editing anything. `plan` keeps the spec approved; `spec` withdraws both. Only you can run it, through the same hook as `approve`. |
 | `/specforge:approve spec\|plan` | Records your approval. Only you can run it: a hook records the approval when you submit the command, and the model has no way to record one. |
 
-Build modes: `strict` pauses after every task, `checkpoint` (default) after each milestone, `auto` only before risky actions such as deleting files, changing dependencies, migrations, external calls or force pushes.
+Build modes: `strict` pauses after every task, `checkpoint` (default) after each milestone, `auto` only before risky actions such as deleting files, changing dependencies, migrations, external calls or force pushes. At a pause the build commits the ticks in `plan.md` and ends its turn. Running `/specforge:build` again, in the same session or a new one, continues from the first unticked task and counts as your go-ahead.
 
 ## Gates
 
@@ -238,19 +238,31 @@ Claude: review.md written: AC-1..AC-6 all pass, no gaps.
 
 Each phase can run headless with `claude -p "/specforge:<phase>"`. The commands call the plugin's scripts through one entry point, `specforge`, which Claude Code puts on the PATH from the plugin's `bin/` folder. So a single exact rule, `Bash(specforge:*)`, allows them, with no general shell access. `specforge` has no way to approve or unapprove; those stay with the person who runs `/specforge:approve`.
 
-Run each phase with `--permission-mode dontAsk`, so anything not listed is refused instead of prompted for, and with these tools (Node example; for pytest use `"Bash(pytest:*)"` or `"Bash(.venv/bin/pytest:*)"` in place of `"Bash(node --test:*)"`):
+Run each phase with `--permission-mode dontAsk`, so anything not listed is refused instead of prompted for, and with these tools. The lists are bash (or zsh) arrays, so a rule with a space, such as `Bash(git checkout:*)`, reaches Claude Code as one argument; in a plain unquoted variable the shell splits it and the rule matches nothing. This is a Node example; for pytest use `'Bash(pytest:*)'` or `'Bash(.venv/bin/pytest:*)'` in `TEST`.
 
-```
-BASE='Read Write Edit Glob Grep Agent Skill Bash(specforge:*)'
-GIT='Bash(git checkout:*) Bash(git switch:*) Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git log:*) Bash(git diff:*) Bash(git branch:*) Bash(git rev-parse:*)'
+```bash
+BASE=(Read Write Edit Glob Grep Agent Skill 'Bash(specforge:*)')
+GIT=('Bash(git checkout:*)' 'Bash(git switch:*)' 'Bash(git add:*)' 'Bash(git commit:*)' 'Bash(git status:*)'
+     'Bash(git log:*)' 'Bash(git diff:*)' 'Bash(git branch:*)' 'Bash(git rev-parse:*)')
+TEST=('Bash(node --test:*)')
+APPROVE=(Read 'Bash(specforge:*)')
 
-claude -p "/specforge:spec <description>" --permission-mode dontAsk --allowedTools $BASE
-claude -p "/specforge:approve spec"       --permission-mode dontAsk --allowedTools 'Read' 'Bash(specforge:*)'
-claude -p "/specforge:plan"               --permission-mode dontAsk --allowedTools $BASE 'Bash(node --test:*)' 'Bash(mkdir:*)'
-claude -p "/specforge:approve plan"       --permission-mode dontAsk --allowedTools 'Read' 'Bash(specforge:*)'
-claude -p "/specforge:build --mode auto"  --permission-mode dontAsk --allowedTools $BASE $GIT 'Bash(node --test:*)'
-claude -p "/specforge:review"             --permission-mode dontAsk --allowedTools $BASE $GIT 'Bash(node --test:*)' 'Bash(git push:*)' 'Bash(gh pr create:*)'
+claude -p "/specforge:spec <description>"       --permission-mode dontAsk --allowedTools "${BASE[@]}"
+claude -p "/specforge:approve spec"             --permission-mode dontAsk --allowedTools "${APPROVE[@]}"
+claude -p "/specforge:plan"                     --permission-mode dontAsk --allowedTools "${BASE[@]}" "${TEST[@]}" 'Bash(mkdir:*)'
+claude -p "/specforge:approve plan"             --permission-mode dontAsk --allowedTools "${APPROVE[@]}"
+claude -p "/specforge:build --mode checkpoint"  --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${TEST[@]}"
+claude -p "/specforge:build"                    --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${TEST[@]}"
+claude -p "/specforge:review"                   --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${TEST[@]}" 'Bash(git push:*)' 'Bash(gh pr create:*)'
 ```
+
+Each build run stops at the mode's next pause (every milestone in `checkpoint`, every task in `strict`, only before risky actions in `auto`), commits the ticks in `plan.md`, and says what is next. Look at what it did; the second build line above is the same build run again for the next milestone. Running `/specforge:build` again continues from the first unticked task; that is how you approve the next milestone. To answer in the same conversation instead, continue it with the same tools:
+
+```bash
+claude -p --continue "continue" --permission-mode dontAsk --allowedTools "${BASE[@]}" "${GIT[@]}" "${TEST[@]}"
+```
+
+Both ways continue from the same folder, which holds `.spec/state.json` (see [Limitations](#limitations)).
 
 `claude -p --output-format json` lists any refused call under `permission_denials`. Whoever runs `claude -p "/specforge:approve …"` is approving, so keep those two lines for a person, or for a pipeline step a person has signed off. If the spec has hidden checks (M11), start each phase in a new session, as `claude -p` does by default, and don't resume the plan session for the build.
 
@@ -273,6 +285,7 @@ claude -p "/specforge:review"             --permission-mode dontAsk --allowedToo
 - **The commit gate reads the command from the project folder.** A `git add` in the same command as the commit is replayed into a temporary index, and paths named in `git commit <paths>` (with `-o`/`--only`, `-i`/`--include` or neither) are matched as git would from the project folder. A `cd` or `git -C <dir>` before them is not followed, and `--pathspec-from-file` is blocked, so stage first and commit separately when it matters. The real index is never changed by the gate.
 - **The Bash guards for `state.json` and approvals are best effort.** Hooks cannot reliably parse every shell command. A model with general shell access could still write the file by a route the patterns do not recognize. The plugin's own route is closed: only the approval hook records approvals, and it runs only on prompts you submit. A headless `claude -p "/specforge:approve spec"` counts as you, since you ran it.
 - **The commit gate runs the tests only after both approvals.** Running them earlier would deadlock the plan phase, which commits failing tests. Before that, it only blocks commits that change code. Outside a git repository there is nothing to check, so it doesn't.
+- **State stays in the working folder.** `.spec/state.json` (approvals, build mode, RED records) isn't committed. A paused build continues from the same folder, in the same session or a new one, but a fresh clone of the branch, such as a CI job that starts from a checkout, has no state, and the build refuses until the spec and plan are approved there.
 - **Hooks need Claude Code 2.1.295 or later** for `onFailure: block`. On older versions a crashing hook script does not block. `/specforge:status` warns when it detects an older version. It reads the version from variables Claude Code sets but doesn't document, so if they change it says it couldn't tell rather than guessing.
 - `python3` must be on the PATH, and the test runner must be installed in the environment Claude runs commands in.
 
