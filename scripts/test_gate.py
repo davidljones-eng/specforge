@@ -468,14 +468,15 @@ def _test_name_patterns(ac_id):
     )
 
 
-def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
+def _files_with_test(run_dir: Path, ac_id):
+    """Relative paths ('/'-separated) of the files holding a test named after
+    ac_id, anywhere in run_dir except .spec/ (the hidden tests live there) and
+    the usual vendored folders."""
     patterns = _test_name_patterns(ac_id)
+    found = []
     for root, dirs, files in os.walk(run_dir, followlinks=False):
-        dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
-        rel_parts = Path(root).relative_to(run_dir).parts
-        if not any(part in test_dirs for part in rel_parts):
-            continue
-        for name in files:
+        dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS and d != ".spec")
+        for name in sorted(files):
             path = Path(root) / name
             if path.suffix.lower() in _DOC_SUFFIXES:
                 continue  # a guide that mentions an AC-ID is not a test for it
@@ -483,11 +484,44 @@ def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
                 if path.stat().st_size > _MAX_SCAN_BYTES:
                     continue
                 text = path.read_text(errors="ignore")
-                if any(p.search(text) for p in patterns):
-                    return True
             except OSError:
                 continue
-    return False
+            if any(p.search(text) for p in patterns):
+                found.append(path.relative_to(run_dir).as_posix())
+    return found
+
+
+def in_test_dirs(rel_path, test_dirs) -> bool:
+    return any(part in test_dirs for part in Path(rel_path).parts[:-1])
+
+
+def tests_for(run_dir: Path, test_dirs, ac_id):
+    """(inside, outside): files with a test named after ac_id, in and out of test_dirs (M15)."""
+    files = _files_with_test(run_dir, ac_id)
+    inside = [f for f in files if in_test_dirs(f, test_dirs)]
+    return inside, sorted(f for f in files if f not in inside)
+
+
+def _has_test_for(run_dir: Path, test_dirs, ac_id) -> bool:
+    return bool(tests_for(run_dir, test_dirs, ac_id)[0])
+
+
+def folder_list(test_dirs) -> str:
+    return ", ".join(f"{d}/" for d in test_dirs)
+
+
+def missing_tests_note(run_dir: Path, test_dirs, missing) -> str:
+    """Where tests named after the missing ACs sit outside test_dirs, if anywhere,
+    and what to do about it. Empty when there are none (M15-AC4)."""
+    outside = sorted({f for ac in missing for f in tests_for(run_dir, test_dirs, ac)[1]})
+    if not outside:
+        return ""
+    return (
+        f" Tests named after them are in {', '.join(outside)}, outside the test folders "
+        f"({folder_list(test_dirs)}), and the hooks look only in those. Move them under "
+        f"{test_dirs[0]}/, or ask the user to add their folder to test_dirs in "
+        ".spec/config.json."
+    )
 
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -655,8 +689,9 @@ def evaluate(event, project_dir):
             if missing:
                 return (
                     f"specforge: commit blocked. No tests found for {', '.join(missing)} in "
-                    f"{', '.join(cfg['test_dirs'])}. Every AC of a done or current task needs "
+                    f"{folder_list(cfg['test_dirs'])}. Every AC of a done or current task needs "
                     "a test named after its AC-ID before code for it can be committed."
+                    + missing_tests_note(run_dir, cfg["test_dirs"], missing)
                 )
             if changed is not None and code_change:
                 reason = red_block_reason(project, cfg, current)

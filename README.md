@@ -72,7 +72,7 @@ Do steps 1 and 2 once per project. From step 3 on, this is the loop for every fe
 
 6. **Approve the spec.** Run `/specforge:approve spec`. Expect `spec_approved` to become true in `.spec/state.json`. Until you do this, `/specforge:plan` refuses and edits to code folders and test folders are blocked.
 
-7. **Plan.** Run `/specforge:plan`. Expect `.spec/plan.md` with tasks tagged by AC-ID, folders each with a short `CLAUDE.md`, and failing tests written from the acceptance criteria only. Source folders are still blocked at this point. Claude stops again.
+7. **Plan.** Run `/specforge:plan`. Expect `.spec/plan.md` with tasks tagged by AC-ID, folders each with a short `CLAUDE.md`, and failing tests written from the acceptance criteria only, under a `test_dirs` folder: the plan phase checks that with `specforge trace --tests` before it stops, since the build looks for tests only there. Source folders are still blocked at this point. Claude stops again.
 
 8. **Review the plan and the tests**, then run `/specforge:approve plan`. Now the source folders are open and `/specforge:build` can run.
 
@@ -123,7 +123,7 @@ If `.spec/spec.md` changes after approval, the spec version goes up and both app
 | Command | What it does |
 |---|---|
 | `/specforge:spec [--from <file> ...] <description>` | Asks up to 5 clarifying questions, saves your description verbatim to `source.md` (with `--from`, `scripts/import_source.py` copies the files there unchanged, such as a SPEC+ document and its SPEC Lite), writes `requirement.md`, `spec.md` and `CLAUDE.md`, runs `spec-reviewer` (which checks the spec against `source.md`), then stops. |
-| `/specforge:plan` | Refuses unless the spec is approved. Writes `plan.md`, folders with short `CLAUDE.md` files, and failing tests. The traceability table carries each AC's source tags (C1, …), which `scripts/trace_check.py --plan` checks against the spec. Stops. |
+| `/specforge:plan` | Refuses unless the spec is approved. Writes `plan.md`, folders with short `CLAUDE.md` files, and failing tests. The traceability table carries each AC's source tags (C1, …), which `scripts/trace_check.py --plan` checks against the spec. `specforge trace --tests` checks that every AC has a test under `test_dirs`. Stops. |
 | `/specforge:build [--mode strict\|checkpoint\|auto]` | Refuses unless spec and plan are approved. Builds on a feature branch with red, green, refactor per task. |
 | `/specforge:review` | Fresh `code-reviewer`, writes `review.md`, opens a PR. Never merges. `review.md` rolls each source check up from its ACs (pass, fail, missing or out of scope), computed by `scripts/trace_check.py --rollup`. It also marks every numbered edge case (EC-1, …) tested, untested or review only, and `trace_check.py --edges` checks none is skipped. |
 | `/specforge:status` | Read-only: phase, approvals, spec version, build mode, pending items. |
@@ -178,7 +178,7 @@ Optional `.spec/config.json`:
 ```
 
 - `code_dirs`: folder names (not paths) that count as source code. Default `src`, `app`, `lib`.
-- `test_dirs`: folder names that count as tests. Default `tests`. A path inside both, such as `app/tests/x.py`, counts as a test.
+- `test_dirs`: folder names that count as tests. Default `tests`. A path inside both, such as `app/tests/x.py`, counts as a test. `/specforge:plan` reads both lists (`specforge config` prints them, with the defaults filled in) and puts the source and tests under them, and `specforge trace --tests` checks that every AC has a test there, since `specforge red` and the commit gate look nowhere else. A test file directly in a code folder, such as `src/a.test.js`, counts as code; a subfolder works if you add its name, for example `__tests__`.
 - `test_command`: how to run the suite. If unset, specforge looks for `pytest`, then `npm test`, then `flutter test`. If it finds none, or the runner is not installed, commits are blocked with a message telling you to set it.
 - `commit_gate_scope`: `commit` (default) runs the commit gate on a temporary copy of exactly what is being committed. `worktree` runs it in the project folder instead, which is faster for slow suites but lets uncommitted files on disk make a commit pass.
 - `test_env_links`: untracked paths the tests need, such as a virtualenv or installed packages. Each one that exists is linked into the temporary copy. Default `.venv`, `venv`, `node_modules`. Paths must stay inside the project.

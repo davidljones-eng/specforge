@@ -1,5 +1,11 @@
-"""Optional per-project settings in <project>/.spec/config.json."""
+"""Optional per-project settings in <project>/.spec/config.json.
+
+    specforge config    print the settings, with defaults filled in (M15)
+"""
+import argparse
 import json
+import os
+import sys
 from pathlib import Path
 
 DEFAULT_CONFIG = {
@@ -124,3 +130,22 @@ def load(project_dir) -> dict:
     if hold is not None and (not isinstance(hold, str) or not hold.strip()):
         raise ConfigError("holdout_command must be a non-empty command, or null")
     return cfg
+
+
+def main(argv=None) -> int:
+    """Print the project's settings with defaults filled in. Changes nothing."""
+    parser = argparse.ArgumentParser(prog="specforge config")
+    parser.add_argument("--project-dir")
+    args = parser.parse_args(argv)
+    project = args.project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    try:
+        cfg = load(project)
+    except ConfigError as e:
+        print(f"specforge: .spec/config.json is invalid ({e}).")
+        return 1
+    print(json.dumps(cfg, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
