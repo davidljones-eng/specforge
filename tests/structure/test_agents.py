@@ -200,3 +200,10 @@ def test_code_reviewer_maps_each_edge_case_to_a_test(root):
 def test_spec_reviewer_flags_compound_edge_cases(root):
     _, body, low = load(root, "spec-reviewer")
     assert "EC-" in body and "one claim" in low
+
+
+def test_test_writer_writes_only_under_the_test_folders(root):
+    # M15-AC1: a test elsewhere is invisible to the hooks, so the build can't record RED
+    _, body, low = load(root, "test-writer")
+    assert "test_dirs" in body
+    assert "red" in low and "next to the code" in low

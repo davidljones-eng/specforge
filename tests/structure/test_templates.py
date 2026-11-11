@@ -174,3 +174,9 @@ def test_review_template_has_an_edge_case_table(templates):
     assert "| EC |" in table
     for status in ("tested", "untested", "review only"):
         assert status in table
+
+
+def test_plan_template_folders_come_from_the_configured_ones(templates):
+    # M15
+    folders = section(read(templates / "plan.md"), "folder structure")
+    assert "code_dirs" in folders and "test_dirs" in folders
