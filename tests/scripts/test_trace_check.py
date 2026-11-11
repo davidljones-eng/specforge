@@ -234,3 +234,92 @@ def test_a_spec_without_ec_ids_has_nothing_to_check(tmp_path):
 def test_main_edges(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project(tmp_path, spec=EDGE_SPEC, review=EDGE_REVIEW)))
     assert trace.main(["--edges"]) == 0
+
+
+# ---------- the tests sit where the hooks look (M15-AC2) ----------
+
+TWO_ACS = "## Acceptance Criteria\n- AC-1: a\n- AC-2: b\n"
+
+
+def make_project(tmp_path, files, config=None):
+    p = project(tmp_path, spec=TWO_ACS, source=None, plan=None, review=None)
+    if config is not None:
+        (p / ".spec" / "config.json").write_text(config)
+    for rel, text in files.items():
+        (p / rel).parent.mkdir(parents=True, exist_ok=True)
+        (p / rel).write_text(text)
+    return p
+
+
+BOTH = 'test("AC-1: a", () => {});\ntest("AC-2: b", () => {});\n'
+
+
+def test_every_ac_with_a_test_in_the_test_folders_passes(tmp_path):
+    code, message = trace.check_tests(make_project(tmp_path, {"tests/a.test.js": BOTH}))
+    assert code == 0 and "2 ACs" in message and "tests/" in message
+
+
+def test_tests_in_another_folder_fail_and_are_named(tmp_path):
+    # the M15 spike's baseline: the plan put its tests in test/
+    code, message = trace.check_tests(make_project(tmp_path, {"test/strtools.test.js": BOTH}))
+    assert code == 1
+    assert "test/strtools.test.js" in message and "AC-1" in message and "AC-2" in message
+    assert "test_dirs" in message and "config.json" in message
+
+
+def test_an_ac_with_no_test_anywhere_fails(tmp_path):
+    code, message = trace.check_tests(make_project(tmp_path, {"tests/a.test.js": 'test("AC-1: a", () => {});\n'}))
+    assert code == 1 and "AC-2" in message and "AC-1" not in message.split("\n", 1)[1]
+
+
+def test_a_copy_outside_the_test_folders_fails_even_when_one_is_inside(tmp_path):
+    code, message = trace.check_tests(make_project(
+        tmp_path, {"tests/a.test.js": BOTH, "src/a.test.js": 'test("AC-1: again", () => {});\n'}))
+    assert code == 1 and "src/a.test.js" in message
+
+
+def test_the_configured_test_folders_are_used(tmp_path):
+    p = make_project(tmp_path, {"test/strtools.test.js": BOTH}, config='{"test_dirs": ["test"]}')
+    code, message = trace.check_tests(p)
+    assert code == 0 and "test/" in message
+
+
+def test_pytest_style_names_count(tmp_path):
+    code, _ = trace.check_tests(make_project(
+        tmp_path, {"tests/test_x.py": "def test_ac1_a():\n    pass\n\ndef test_ac2_b():\n    pass\n"}))
+    assert code == 0
+
+
+def test_other_test_files_outside_the_folders_are_only_noted(tmp_path):
+    p = make_project(tmp_path, {"tests/a.test.js": BOTH, "e2e/smoke.spec.ts": "it('loads', () => {})\n",
+                                 "node_modules/x/y.test.js": 'test("AC-1: vendored", () => {});\n'})
+    code, message = trace.check_tests(p)
+    assert code == 0 and "e2e/smoke.spec.ts" in message and "node_modules" not in message
+
+
+def test_hidden_tests_in_the_spec_folder_are_not_mentioned(tmp_path):
+    p = make_project(tmp_path, {"tests/a.test.js": BOTH, ".spec/holdout/h.test.js": 'test("AC-1: h", () => {});\n'})
+    code, message = trace.check_tests(p)
+    assert code == 0 and "holdout" not in message
+
+
+def test_main_tests(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(make_project(tmp_path, {"test/a.test.js": BOTH})))
+    assert trace.main(["--tests"]) == 1
+    assert "test/a.test.js" in capsys.readouterr().out
+
+
+# ---------- folders the hooks don't gate (M15-AC3) ----------
+
+def test_a_folder_outside_code_and_test_dirs_is_a_warning_not_a_failure(tmp_path):
+    plan = PLAN + "\n## Folder Structure\n- `src/` - code\n- `tests/unit/` - tests\n- `public/` - the page\n- `index.html` - entry\n"
+    code, message = trace.check_plan(project(tmp_path, plan=plan))
+    assert code == 0
+    assert "public/" in message and "index.html" in message and "code_dirs" in message
+    assert "src/" not in message.split("public/")[0].split("5 ACs")[-1]
+
+
+def test_folders_inside_code_and_test_dirs_give_no_warning(tmp_path):
+    plan = PLAN + "\n## Folder Structure\n- `src/lib/` - code\n- `tests/` - tests\n"
+    code, message = trace.check_plan(project(tmp_path, plan=plan))
+    assert code == 0 and "code_dirs" not in message

@@ -206,3 +206,28 @@ def test_holdout_command_rejects_anything_else(tmp_path, value):
     write(tmp_path, json.dumps({"holdout_command": value}))
     with pytest.raises(config.ConfigError, match="holdout_command"):
         config.load(tmp_path)
+
+
+# ---------- specforge config (M15-AC1) ----------
+
+def test_main_prints_the_settings_with_defaults_filled_in(tmp_path, monkeypatch, capsys):
+    (tmp_path / ".spec").mkdir()
+    write(tmp_path, '{"test_dirs": ["test"]}')
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert config.main([]) == 0
+    got = json.loads(capsys.readouterr().out)
+    assert got["test_dirs"] == ["test"] and got["code_dirs"] == ["src", "app", "lib"]
+    assert set(got) == set(config.DEFAULT_CONFIG)
+
+
+def test_main_without_a_config_file_prints_the_defaults(tmp_path, capsys):
+    assert config.main(["--project-dir", str(tmp_path)]) == 0
+    assert json.loads(capsys.readouterr().out) == config.DEFAULT_CONFIG
+
+
+def test_main_reports_an_invalid_config(tmp_path, capsys):
+    (tmp_path / ".spec").mkdir()
+    write(tmp_path, '{"test_dirs": []}')
+    assert config.main(["--project-dir", str(tmp_path)]) == 1
+    assert "test_dirs" in capsys.readouterr().out

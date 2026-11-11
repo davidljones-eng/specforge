@@ -227,3 +227,32 @@ def test_node_end_to_end(proj, ok, expected):
     code, _ = red.run(proj)
     assert code == expected
     assert red_of(proj) == ({"T2": head(proj)} if expected == 0 else {})
+
+
+# ---------- M15-AC4: messages ----------
+
+def test_a_test_outside_the_test_folders_is_named(proj):
+    (proj / "tests" / "all.test.js").write_text('test("AC-1: a", () => {});\ntest("AC-2: b", () => {});\n')
+    (proj / "test").mkdir()
+    (proj / "test" / "three.test.js").write_text('test("AC-3: c", () => {});\n')
+    _git(proj, "add", "-A")
+    _git(proj, "commit", "-qm", "test: AC-3 in test/")
+    code, message = red.run(proj)
+    assert code == 1 and red_of(proj) == {}
+    assert "AC-3" in message and "tests/" in message and "test/three.test.js" in message
+    assert "test_dirs" in message
+
+
+@pytest.mark.parametrize("setup", ["none", "missing", "passing"])
+def test_messages_name_specforge_red_not_the_script(proj, setup):
+    if setup == "none":
+        set_config(proj)
+    elif setup == "missing":
+        (proj / "tests" / "all.test.js").write_text('test("AC-1: a", () => {});\n')
+        _git(proj, "commit", "-qam", "test: drop")
+    else:
+        set_config(proj, test_filter="exit 0 #{ac_regex}")
+    code, message = red.run(proj)
+    assert code == 1 and "red.py" not in message
+    if setup != "none":
+        assert "specforge red" in message
