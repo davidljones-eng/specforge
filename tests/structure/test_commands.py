@@ -397,3 +397,17 @@ def test_review_runs_the_holdout_tests_before_the_rollup(root):
     step = next(l for l in body.splitlines() if "holdout_command" in l)
     assert "Holdout" in step
     assert body.index("holdout_command") < body.index("--rollup")
+
+
+# ---------- edge cases (M12) ----------
+
+def test_spec_writer_numbers_edge_cases_one_claim_each(root):
+    _, body, low = load(root, "spec")
+    assert "EC-1" in body and "one claim" in low
+
+
+def test_review_checks_the_edge_case_table_before_committing(root):
+    _, body, _ = load(root, "review")
+    script = "${CLAUDE_PLUGIN_ROOT}/scripts/trace_check.py\" --edges"
+    assert script in body
+    assert body.index(script) < body.index("Commit `.spec/review.md`")

@@ -182,3 +182,55 @@ def test_a_hidden_ac_that_passes_counts(tmp_path):
 def test_without_a_holdout_table_hidden_acs_are_missing(tmp_path):
     review = REVIEW.replace("| AC-5 | — | — | missing |", "| AC-5 | x | y | pass |")
     assert "| C3 | AC-5, HAC-1 | missing |" in trace.rollup(with_holdout(tmp_path, review))[1]
+
+
+# ---------- edge cases (M12) ----------
+
+EDGE_SPEC = SPEC + """
+## Edge Cases
+- EC-1: an empty message is ignored (AC-1).
+- **EC-2**: an emoji counts as 2 characters (AC-2).
+- EC-3: the page shows text, never HTML (review only).
+"""
+
+EDGE_REVIEW = REVIEW + """
+## Edge Cases
+| EC | Edge case | Test | Status |
+|----|-----------|------|--------|
+| EC-1 | empty message ignored | `tests/a.test.js::AC-1: empty` | tested |
+| EC-2 | emoji counts as 2 | — | untested |
+| EC-3 | text, never HTML | — | review only |
+"""
+
+
+def test_every_edge_case_with_a_status_passes(tmp_path):
+    code, message = trace.check_edges(project(tmp_path, spec=EDGE_SPEC, review=EDGE_REVIEW))
+    assert code == 0 and "3 edge cases" in message and "1 untested" in message
+
+
+@pytest.mark.parametrize(
+    "old,new,expected",
+    [
+        ("| EC-2 | emoji counts as 2 | — | untested |\n", "", "EC-2"),           # a row missing
+        ("| review only |", "| looks fine |", "EC-3"),                          # not a status
+        ("| EC-1 | empty", "| EC-9 | empty", "EC-9"),                            # a row for no edge case
+    ],
+)
+def test_a_missing_or_bad_row_is_reported(tmp_path, old, new, expected):
+    code, message = trace.check_edges(project(tmp_path, spec=EDGE_SPEC, review=EDGE_REVIEW.replace(old, new)))
+    assert code == 1 and expected in message
+
+
+def test_a_review_without_an_edge_case_table_is_reported(tmp_path):
+    code, message = trace.check_edges(project(tmp_path, spec=EDGE_SPEC))
+    assert code == 1 and "Edge Cases" in message
+
+
+def test_a_spec_without_ec_ids_has_nothing_to_check(tmp_path):
+    code, message = trace.check_edges(project(tmp_path, review=EDGE_REVIEW))
+    assert code == 0 and "no EC-IDs" in message
+
+
+def test_main_edges(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project(tmp_path, spec=EDGE_SPEC, review=EDGE_REVIEW)))
+    assert trace.main(["--edges"]) == 0
