@@ -158,3 +158,19 @@ def test_review_template_has_a_holdout_section(templates):
     assert "holdout" in headings(text)
     table = section(text, "holdout")
     assert "| HAC |" in table and "Status" in table
+
+
+# ---------- edge cases (M12) ----------
+
+def test_spec_template_numbers_edge_cases(templates):
+    edges = section(read(templates / "spec.md"), "edge cases")
+    assert "EC-1" in edges and "(AC-" in edges
+
+
+def test_review_template_has_an_edge_case_table(templates):
+    text = read(templates / "review.md")
+    assert "edge cases" in headings(text)
+    table = section(text, "edge cases")
+    assert "| EC |" in table
+    for status in ("tested", "untested", "review only"):
+        assert status in table

@@ -165,3 +165,8 @@ def test_readme_explains_holdout_compartments(readme):
 def test_readme_documents_the_holdout_command(readme):
     # M11-AC4
     assert "holdout_command" in section(readme, "configuration")
+
+
+def test_readme_mentions_edge_case_coverage(readme):
+    # M12
+    assert "--edges" in readme and "EC-1" in readme

@@ -184,3 +184,19 @@ def test_holdout_writer_writes_only_holdout_tests(root):
 def test_spec_reviewer_reads_the_holdout_file(root):
     _, body, _ = load(root, "spec-reviewer")
     assert ".spec/holdout.md" in body
+
+
+# ---------- edge cases (M12) ----------
+
+def test_code_reviewer_maps_each_edge_case_to_a_test(root):
+    _, body, low = load(root, "code-reviewer")
+    assert "EC-" in body
+    for word in ("tested", "untested", "review only"):
+        assert word in low
+    assert "citing" in low  # a cited AC alone doesn't count
+    assert "split" in low   # older specs: split bullets into claims
+
+
+def test_spec_reviewer_flags_compound_edge_cases(root):
+    _, body, low = load(root, "spec-reviewer")
+    assert "EC-" in body and "one claim" in low
