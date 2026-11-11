@@ -438,9 +438,11 @@ def test_phase_commands_keep_to_the_tools_a_headless_run_allows(root, name):
     assert "only the shell commands" in low
     # the second run's one refusal: `node --test 2>&1; echo "EXIT=$?"`
     assert "on its own" in low and "echo" in body
-    # the third run's one refusal: `npm test`, when the allowed runner was test_command
+    # the third run's one refusal: `npm test`, when the allowed runner was test_command.
+    # M18-AC2: the tests run through `specforge test`, which needs no rule of its own
     rule = next(l for l in body.splitlines() if "only the shell commands" in l)
-    assert "test_command" in rule
+    assert "`specforge test`" in rule
+    assert "exactly as written" not in rule
 
 
 # ---------- M14: pausing and continuing a build ----------
@@ -553,3 +555,45 @@ def test_build_says_what_to_do_when_a_test_file_cannot_load(root):
     _, body, low = load(root, "build")
     rule = _paragraph(body, "failed to load").lower()
     assert "stub" in rule and "/specforge:unapprove plan" in rule
+
+
+# ---------- M18: the tests run through `specforge test` ----------
+
+def _step(body, marker):
+    """The line of `body` that starts with `marker` (a step or a RED/GREEN bullet)."""
+    line = next((l for l in body.splitlines() if l.strip().startswith(marker)), None)
+    assert line is not None, f"no line starts with {marker!r}"
+    return line
+
+
+@pytest.mark.parametrize("name", ["spec", "plan", "build", "review"])
+def test_phase_commands_never_name_test_command_as_something_to_run(root, name):
+    # M18-AC2: with test_command unset, 3 of 3 v0.2.20 plan runs ran no tests
+    _, body, low = load(root, name)
+    assert "`test_command` from `.spec/config.json`" not in body
+    assert "usual runner" not in low
+
+
+def test_plan_runs_its_tests_with_specforge_test(root):
+    # M18-AC2
+    _, body, _ = load(root, "plan")
+    assert "`specforge test`" in _step(body, "6.")
+
+
+@pytest.mark.parametrize("marker", ["- **RED**", "- **GREEN**", "- **REFACTOR**"])
+def test_build_runs_its_tests_with_specforge_test(root, marker):
+    # M18-AC2
+    _, body, _ = load(root, "build")
+    assert "`specforge test" in _step(body, marker)
+
+
+def test_build_runs_one_tasks_tests_by_ac_id(root):
+    # M18-AC1/AC2: RED runs the task's own tests
+    _, body, _ = load(root, "build")
+    assert "specforge test <AC-ID" in _step(body, "- **RED**")
+
+
+def test_review_runs_the_full_suite_with_specforge_test(root):
+    # M18-AC2
+    _, body, _ = load(root, "review")
+    assert "`specforge test`" in _step(body, "1.")
