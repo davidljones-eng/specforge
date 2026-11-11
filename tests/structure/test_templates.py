@@ -33,7 +33,7 @@ def test_skill_has_valid_frontmatter(skill_dir):
 
 def test_skill_references_every_template(skill_dir):
     body = read(skill_dir / "SKILL.md")
-    for name in ("requirement.md", "spec.md", "plan.md", "review.md", "CLAUDE.md"):
+    for name in ("requirement.md", "spec.md", "plan.md", "review.md", "CLAUDE.md", "holdout.md"):
         assert name in body, f"SKILL.md should mention {name}"
 
 
@@ -143,3 +143,10 @@ def test_review_template_has_a_source_checks_section(templates):
     text = read(templates / "review.md")
     assert "source checks" in headings(text)
     assert "trace_check.py --rollup" in section(text, "source checks")
+
+
+def test_holdout_template_has_hidden_acs(templates):
+    # M11-AC1
+    text = read(templates / "holdout.md")
+    assert "hidden acceptance criteria" in headings(text)
+    assert "HAC-1" in text and "[C" in text

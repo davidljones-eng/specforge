@@ -368,3 +368,23 @@ def test_review_puts_the_rollup_in_review_md(root):
     assert script in body
     step = next(l for l in body.splitlines() if "--rollup" in l)
     assert "Source Checks" in step
+
+
+# ---------- holdout (M11) ----------
+
+def test_spec_puts_hidden_checks_in_the_holdout_file(root):
+    _, body, _ = load(root, "spec")
+    assert "[hidden]" in body and ".spec/holdout.md" in body and "HAC-" in body
+    assert "templates/holdout.md" in body
+
+
+def test_plan_has_the_holdout_writer_write_hidden_tests(root):
+    _, body, low = load(root, "plan")
+    assert "specforge:holdout-writer" in body and ".spec/holdout/" in body
+    stop = body[body.index("**Stop.**"):]
+    assert "/clear" in stop  # the build needs a fresh session
+
+
+def test_build_says_to_start_fresh_when_the_conversation_saw_hidden_checks(root):
+    _, body, _ = load(root, "build")
+    assert "/clear" in body and "hidden" in body

@@ -147,3 +147,10 @@ def test_readme_explains_importing_spec_plus(readme):
 def test_readme_mentions_source_ids_in_plan_and_review(readme):
     # M10
     assert "trace_check.py" in readme
+
+
+def test_readme_explains_holdout_compartments(readme):
+    # M11
+    gates = section(readme, "gates")
+    assert "holdout.md" in gates and "/clear" in gates
+    assert "holdout-writer" in readme
