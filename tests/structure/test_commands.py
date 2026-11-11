@@ -279,3 +279,23 @@ def test_spec_fills_the_root_claude_md_constraints(root):
     _, body, _ = load(root, "spec")
     step = next(l for l in body.splitlines() if "templates/root-CLAUDE.md" in l)
     assert "Constraints" in step and "E4" in step
+
+
+# ---------- source IDs (M10) ----------
+
+def test_plan_checks_the_traceability_table_before_stopping(root):
+    _, body, _ = load(root, "plan")
+    script = "${CLAUDE_PLUGIN_ROOT}/scripts/trace_check.py\" --plan"
+    assert script in body
+    stop = body.index("**Stop.**")
+    assert body.index(script) < stop
+    step = next(l for l in body.splitlines() if "traceability table" in l)
+    assert "Source" in step
+
+
+def test_review_puts_the_rollup_in_review_md(root):
+    _, body, _ = load(root, "review")
+    script = "${CLAUDE_PLUGIN_ROOT}/scripts/trace_check.py\" --rollup"
+    assert script in body
+    step = next(l for l in body.splitlines() if "--rollup" in l)
+    assert "Source Checks" in step

@@ -123,3 +123,8 @@ def test_readme_explains_importing_spec_plus(readme):
     # M9
     assert "--from" in section(readme, "commands")
     assert "import_source.py" in readme
+
+
+def test_readme_mentions_source_ids_in_plan_and_review(readme):
+    # M10
+    assert "trace_check.py" in readme
