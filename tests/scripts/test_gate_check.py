@@ -466,7 +466,7 @@ def test_a_code_edit_without_red_for_the_current_task_is_blocked(red_proj):
     reason = gate_check.evaluate(edit(red_proj, red_proj / "src" / "app.js"), red_proj)
     assert reason and "T2" in reason and "no failing test recorded" in reason
     assert "AC-2, AC-3" in reason and "AC-1" not in reason.replace("AC-1,", "")  # own ACs only
-    assert "red.py" in reason and "test:" in reason
+    assert "`specforge red`" in reason and "test:" in reason
 
 
 @pytest.mark.parametrize("tool", ["Edit", "Write", "MultiEdit"])
