@@ -536,3 +536,20 @@ def test_plan_checks_where_the_tests_are_before_stopping(root):
     assert body.index("specforge trace --tests") > body.index("specforge:test-writer")
     stop = _paragraph(body, "**Stop.**")
     assert "trace --tests" in stop
+
+
+# ---------- M16: tests that load before the code exists ----------
+
+def test_plan_runs_red_all_after_the_tests_are_written(root):
+    _, body, _ = load(root, "plan")
+    assert "specforge red --all" in body
+    assert body.index("specforge red --all") > body.index("specforge trace --tests")
+    step = _paragraph(body, "specforge red --all").lower()
+    assert "test_filter" in step and "inside each test" in step
+    assert "red --all" in _paragraph(body, "**Stop.**")
+
+
+def test_build_says_what_to_do_when_a_test_file_cannot_load(root):
+    _, body, low = load(root, "build")
+    rule = _paragraph(body, "failed to load").lower()
+    assert "stub" in rule and "/specforge:unapprove plan" in rule

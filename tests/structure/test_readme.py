@@ -241,3 +241,8 @@ def test_readme_documents_the_folder_checks(readme):
     assert "specforge config" in readme and "trace --tests" in readme
     configuration = section(readme, "configuration")
     assert "/specforge:plan" in configuration.split("`test_dirs`")[1].split("\n- ")[0]
+
+
+def test_readme_documents_red_all_and_loading_inside_each_test(readme):
+    # M16
+    assert "specforge red --all" in readme and "inside each test" in readme
