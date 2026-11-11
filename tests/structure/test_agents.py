@@ -207,3 +207,12 @@ def test_test_writer_writes_only_under_the_test_folders(root):
     _, body, low = load(root, "test-writer")
     assert "test_dirs" in body
     assert "red" in low and "next to the code" in low
+
+
+def test_test_writer_loads_the_code_inside_each_test(root):
+    # M16-AC1: four of six M15 plans imported at the top of the file, which
+    # deadlocks the build: the file can't load until a later task's code exists
+    _, body, low = load(root, "test-writer")
+    assert "inside each test" in low
+    assert "await import(" in body and "inside the test function" in low
+    assert "later task" in low

@@ -73,3 +73,8 @@ def test_config_prints_the_settings_with_defaults(proj):
 def test_usage_lists_config_and_trace_tests(proj):
     out = sf(proj, "--help").stdout
     assert "specforge config" in out and "--tests" in out
+
+
+def test_usage_lists_red_all(proj):
+    # M16-AC2
+    assert "red [--all]" in sf(proj, "--help").stdout
