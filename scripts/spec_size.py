@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 import config
+import holdout
 
 # "- AC-3 [C1, E2]: ...", "* **AC-3** [C1]: ..." or "- AC-3 (C1, E2): ..."
 _AC_BULLET = re.compile(
@@ -48,7 +49,8 @@ def _table_ids(text):
             continue
         cell = row.group(1).split("|")[0].strip().strip("`* ")
         if cell:
-            ids.append(cell)
+            # "C2 [hidden]" is check C2 with a SPEC+ visibility tag (M11)
+            ids.append(cell.split()[0].strip("`*"))
     return ids
 
 
@@ -98,10 +100,12 @@ def measure(project_dir) -> dict:
 
     tags = {ac: [t for t in ts if _C_ID.match(t)] for ac, ts in _ac_tags(spec).items()}
     acs = list(tags)
+    # Hidden ACs (M11) count toward the budget and cover their checks.
+    hidden = {ac: [t for t in ts if _C_ID.match(t)] for ac, ts in holdout.hidden_acs(project_dir).items()}
 
     checks = sorted({i for i in _table_ids(source) if _C_ID.match(i)}, key=_number)
     per_check = {c: 0 for c in checks}
-    for cids in tags.values():
+    for cids in list(tags.values()) + list(hidden.values()):
         for c in dict.fromkeys(cids):
             per_check[c] = per_check.get(c, 0) + 1
     per_check = dict(sorted(per_check.items(), key=lambda kv: (kv[0] not in checks, _number(kv[0]))))
@@ -110,13 +114,14 @@ def measure(project_dir) -> dict:
     budget = cfg["ac_budget"]
     return {
         "acs": acs,
+        "hidden": list(hidden),
         "checks": checks,
         "per_check": per_check,
         "untagged": [a for a in acs if not tags[a]],
         "out_of_scope": [c for c in checks if per_check[c] == 0 and c in out_of_scope],
         "uncovered": [c for c in checks if per_check[c] == 0 and c not in out_of_scope],
         "budget": budget,
-        "over": max(0, len(acs) - budget) if budget is not None else 0,
+        "over": max(0, len(acs) + len(hidden) - budget) if budget is not None else 0,
     }
 
 
@@ -126,7 +131,8 @@ def _plural(n, word):
 
 def summary_line(m) -> str:
     budget = f"budget {m['budget']}" if m["budget"] is not None else "no budget"
-    acs = f"{_plural(len(m['acs']), 'AC')} ({budget})."
+    hidden = f" + {len(m['hidden'])} hidden" if m.get("hidden") else ""
+    acs = f"{_plural(len(m['acs']), 'AC')}{hidden} ({budget})."
     if m["checks"]:
         parts = []
         for c, n in m["per_check"].items():

@@ -17,10 +17,12 @@ import sys
 from pathlib import Path
 
 import config
+import holdout
 import state
 import test_gate
 
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit")
+READ_TOOLS = ("Read", "Grep", "Glob")
 
 NEED_SPEC = "need_spec"  # tests, and CLAUDE.md notes inside code folders
 NEED_BOTH = "need_both"  # source code
@@ -104,6 +106,78 @@ def _evaluate_skill(event):
     return None
 
 
+# M11, best effort: shell commands that search the whole project.
+_SEARCH = re.compile(
+    r"\b(?:e|f)?grep\b[^|;&]*\s-[A-Za-z]*[rR]|\bgrep\b[^|;&]*--recursive"
+    r"|\b(?:rg|ag|ack)\b|\bgit\s+grep\b|\bfind\b"
+)
+_SPEC_FOLDER = re.compile(r"\.spec/?(?:\*|\s|$|[;|&])")
+
+
+def _search_dirs(project):
+    try:
+        cfg = config.load(project)
+    except config.ConfigError:
+        cfg = config.DEFAULT_CONFIG
+    return list(cfg["code_dirs"]) + list(cfg["test_dirs"])
+
+
+def _hidden_applies(event, project):
+    """True if this call comes from a session that may build while hidden ACs exist."""
+    return holdout.exists(project) and not holdout.session_aware(project, event.get("session_id"))
+
+
+def _evaluate_read(event, project):
+    """M11: a session that may build can't read or search the hidden material."""
+    if not _hidden_applies(event, project):
+        return None
+    tool_input = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
+    cwd = event.get("cwd") or str(project)
+    tool = event.get("tool_name")
+    if tool == "Read":
+        file_path = tool_input.get("file_path")
+        if not isinstance(file_path, str) or not file_path:
+            return "specforge: blocked a read because the target file could not be determined."
+        path = Path(file_path) if Path(file_path).is_absolute() else Path(cwd) / file_path
+        if holdout.is_hidden(project, path):
+            return (
+                f"specforge: blocked reading {holdout.relative(project, path)}. It holds hidden "
+                "checks that a session which may build mustn't see. Work from .spec/spec.md "
+                "and .spec/plan.md."
+            )
+        return None
+    hits = (holdout.grep_reaches if tool == "Grep" else holdout.glob_reaches)(project, tool_input, cwd)
+    if not hits:
+        return None
+    shown = ", ".join(holdout.relative(project, h) for h in hits[:3])
+    return (
+        f"specforge: blocked a search that would reach hidden checks ({shown}). "
+        f"Search inside {', '.join(_search_dirs(project))} instead, for example with path: "
+        f"{_search_dirs(project)[0]}."
+    )
+
+
+def _evaluate_hidden_bash(event, project, command):
+    """M11, best effort: keep a session that may build out of the hidden material."""
+    if not _hidden_applies(event, project):
+        return None
+    names = sorted(n for n in holdout.hidden_names(project) if n in command)
+    if names or _SPEC_FOLDER.search(command):
+        what = ", ".join(names) or "the .spec folder"
+        return (
+            f"specforge: blocked a shell command that would reach hidden checks ({what}). "
+            "Work from .spec/spec.md and .spec/plan.md."
+        )
+    if _SEARCH.search(command):
+        dirs = _search_dirs(project)
+        if not any(re.search(rf"(?<![\w.-]){re.escape(d)}(?![\w-])", command) for d in dirs):
+            return (
+                "specforge: blocked a search of the whole project, which would reach hidden "
+                f"checks. Search inside {', '.join(dirs)} instead."
+            )
+    return None
+
+
 def evaluate(event, project_dir):
     """Return None to allow the tool call, or a reason string to block it."""
     project = Path(project_dir).resolve()
@@ -111,8 +185,15 @@ def evaluate(event, project_dir):
         return None  # specforge is not in use in this project
 
     tool = event.get("tool_name")
+    if tool in READ_TOOLS:
+        return _evaluate_read(event, project)
     if tool == "Bash":
-        return _evaluate_bash(event, project)
+        reason = _evaluate_bash(event, project)
+        if reason:
+            return reason
+        tool_input = event.get("tool_input")
+        command = tool_input.get("command") if isinstance(tool_input, dict) else None
+        return _evaluate_hidden_bash(event, project, command) if isinstance(command, str) else None
     if tool == "Skill":
         return _evaluate_skill(event)
     if tool not in EDIT_TOOLS:
@@ -122,6 +203,25 @@ def evaluate(event, project_dir):
         parts = _target_parts(event, project)
     except ValueError:
         return "specforge: blocked an edit because the target file could not be determined."
+
+    # M11: only the holdout writer writes holdout tests, and a session that may
+    # build can't touch the hidden material.
+    target = Path(event["tool_input"]["file_path"])
+    if not target.is_absolute():
+        target = Path(event.get("cwd") or project) / target
+    folder = (project / holdout.HOLDOUT_DIR).resolve()
+    if folder == target.resolve() or folder in target.resolve().parents:
+        if event.get("agent_type") != holdout.WRITER:
+            return (
+                f"specforge: blocked edit to {holdout.relative(project, target)}. Only the "
+                f"{holdout.WRITER} subagent writes holdout tests."
+            )
+        return None
+    if _hidden_applies(event, project) and holdout.is_hidden(project, target):
+        return (
+            f"specforge: blocked edit to {holdout.relative(project, target)}. It holds hidden "
+            "checks that a session which may build mustn't see."
+        )
     if parts is None:
         return None
 
@@ -166,6 +266,12 @@ def evaluate(event, project_dir):
         return (
             f"specforge: blocked edit to {rel}. The plan is not approved yet. "
             "Review .spec/plan.md, then run /specforge:approve plan."
+        )
+    if needs == NEED_BOTH and holdout.exists(project) and holdout.session_aware(project, event.get("session_id")):
+        return (
+            f"specforge: blocked edit to {rel}. This session has seen the hidden checks (it ran "
+            "/specforge:spec, /plan or /review), so it can't write code while .spec/holdout.md "
+            "has hidden ACs. Start a fresh session (/clear) and run /specforge:build there."
         )
     if needs == NEED_BOTH:
         reason = test_gate.red_block_reason(project, cfg, current)

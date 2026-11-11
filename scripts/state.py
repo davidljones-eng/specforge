@@ -21,8 +21,11 @@ DEFAULT_STATE = {
 
 # Optional keys, absent until first used, so a state.json from before them
 # still reads. "red" maps a task ID to the commit where red.py saw its tests
-# fail (M4); only red.py writes it.
-OPTIONAL_KEYS = ("red",)
+# fail (M4); only red.py writes it. "aware_sessions" lists the sessions that
+# ran /specforge:spec, /plan or /review and so have seen hidden checks (M11);
+# only approve_hook.py writes it.
+OPTIONAL_KEYS = ("red", "aware_sessions")
+_MAX_SESSIONS = 200
 _TASK_ID = re.compile(r"^T\d+$")
 
 
@@ -71,6 +74,10 @@ def _validate(data):
             for k, v in red.items()
         ):
             raise ValueError("red must map task IDs like T4 to commit IDs")
+    if "aware_sessions" in data:
+        sessions = data["aware_sessions"]
+        if not isinstance(sessions, list) or not all(isinstance(s, str) and s for s in sessions):
+            raise ValueError("aware_sessions must be a list of session IDs")
 
 
 def _write(project_dir, data):
@@ -161,6 +168,12 @@ def red_tasks(data) -> dict:
 def record_red(project_dir, task_id, commit) -> dict:
     """Record that `task_id`'s tests failed at `commit`. Used only by red.py."""
     return update(project_dir, red={**red_tasks(read(project_dir)), task_id: commit})
+
+
+def record_session(project_dir, session_id) -> dict:
+    """Remember that `session_id` has seen the hidden checks (M11)."""
+    sessions = [s for s in read(project_dir).get("aware_sessions", []) if s != session_id]
+    return update(project_dir, aware_sessions=(sessions + [session_id])[-_MAX_SESSIONS:])
 
 
 def bump_spec_version(project_dir) -> dict:

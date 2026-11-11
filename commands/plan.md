@@ -31,6 +31,8 @@ Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state.py" get` first.
 
 5. Run the `specforge:test-writer` subagent. Give it **only** the acceptance criteria from `.spec/spec.md` and the test folder layout. It must not see implementation ideas. It writes failing tests, one or more per AC, and names each test after its AC-ID.
 
+   If `.spec/holdout.md` lists hidden ACs (`HAC-1`, …), also run the `specforge:holdout-writer` subagent. Give it `.spec/holdout.md` and the interface from `.spec/spec.md`'s Scope. It writes their tests to `.spec/holdout/`, which a hook keeps everyone else from writing. Never mention hidden ACs or their tests in `.spec/plan.md`, and never put them in the test folders.
+
 6. Run the tests and confirm they fail for the right reason (the feature is missing), not because of a syntax error or a broken import. Fix the tests if they fail for the wrong reason. Do not commit in this phase.
 
-7. **Stop.** Summarize the milestones, the task count, the `trace_check.py --plan` result, and which tests were created and are failing. Tell the user to review `.spec/plan.md` and the tests, then run `/specforge:approve plan`, then `/specforge:build`. Do not approve anything yourself and do not write any production code.
+7. **Stop.** Summarize the milestones, the task count, the `trace_check.py --plan` result, and which tests were created and are failing. Tell the user to review `.spec/plan.md` and the tests, then run `/specforge:approve plan`, then `/specforge:build`. If there are hidden ACs, tell them to start a fresh session first (`/clear`, or a new window) and run `/specforge:build` there: this conversation has seen the hidden checks, so the hooks won't let it write code. Do not approve anything yourself and do not write any production code.
