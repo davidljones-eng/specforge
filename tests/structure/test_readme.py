@@ -1,3 +1,7 @@
+import re
+import shutil
+import subprocess
+
 import pytest
 
 from conftest import headings, section
@@ -174,3 +178,53 @@ def test_readme_has_a_headless_section_with_exact_allow_rules(readme):
     for phase in ("spec", "approve", "plan", "build", "review"):
         assert f"/specforge:{phase}" in text
     assert "Bash(python3:*)" not in readme
+
+
+# ---------- M14: the Headless / CI block as written ----------
+
+_STUB = 'claude() { for a in "$@"; do printf "%s\\x1f" "$a"; done; printf "\\n"; }\n'
+
+
+def _headless_block(readme):
+    """Every ```bash block in the Headless section, joined, as one script."""
+    blocks = re.findall(r"^```bash\n(.*?)^```", section(readme, "headless / ci"), re.DOTALL | re.MULTILINE)
+    assert blocks, "the Headless section has no ```bash block"
+    return "\n".join(blocks)
+
+
+def _invocations(readme):
+    """argv lists of each `claude` call in the Headless block, as bash splits them."""
+    if shutil.which("bash") is None:
+        pytest.skip("bash not installed")
+    out = subprocess.run(["bash", "-c", _STUB + _headless_block(readme)],
+                         capture_output=True, text=True, check=True).stdout
+    return [line.split("\x1f")[:-1] for line in out.splitlines() if line]
+
+
+def test_headless_block_passes_each_allow_rule_as_one_argument(readme):
+    # M14-AC3: `--allowedTools $GIT` split "Bash(git checkout:*)" at the space,
+    # so no git rule matched and a headless build couldn't create its branch
+    calls = _invocations(readme)
+    assert calls, "the Headless block runs no claude command"
+    for argv in calls:
+        for arg in argv:
+            assert arg.count("(") == arg.count(")"), f"rule split by the shell: {arg!r} in {argv}"
+    builds = [a for a in calls if any(x.startswith("/specforge:build") for x in a)]
+    assert builds and all("Bash(git checkout:*)" in a and "Bash(git commit:*)" in a for a in builds)
+
+
+def test_headless_block_shows_a_checkpoint_build_and_how_to_continue(readme):
+    # M14-AC3
+    calls = _invocations(readme)
+    prompts = [a[a.index("-p") + 1] for a in calls if "-p" in a]
+    assert "/specforge:build --mode checkpoint" in prompts
+    assert "/specforge:build" in prompts  # run again for the next milestone
+    assert any("--continue" in a for a in calls)
+    text = section(readme, "headless / ci")
+    assert "first unticked task" in text and "commits" in text
+
+
+def test_readme_says_state_stays_in_the_working_folder(readme):
+    # M14 known limit
+    text = section(readme, "limitations")
+    assert "state.json" in text and "fresh clone" in text
