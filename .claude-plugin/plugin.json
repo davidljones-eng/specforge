@@ -1,6 +1,6 @@
 {
   "name": "specforge",
-  "version": "0.2.12",
+  "version": "0.2.13",
   "description": "Spec-driven development with human approval gates: spec, plan, build, review.",
   "author": { "name": "Kumaran C S" },
   "license": "MIT",
