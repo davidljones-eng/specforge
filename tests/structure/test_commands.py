@@ -43,7 +43,7 @@ def test_command_scripts_and_templates_referenced_exist(root, name):
 @pytest.mark.parametrize("name", ["plan", "build", "review", "status", "approve", "unapprove"])
 def test_state_driven_commands_use_state_script(root, name):
     _, body, _ = load(root, name)
-    assert "${CLAUDE_PLUGIN_ROOT}/scripts/state.py" in body
+    assert "specforge state" in body
 
 
 @pytest.mark.parametrize("name", ["plan", "build", "review"])
@@ -65,7 +65,7 @@ def test_spec_workflow_wording(root):
     assert "5 clarifying questions" in low or "five clarifying questions" in low
     for needle in ("requirement.md", "spec.md", "CLAUDE.md", "AC-1", "spec-reviewer"):
         assert needle in body, needle
-    assert "state.py" in body and "init" in body
+    assert "specforge state init" in body
     assert "stop" in low and "/specforge:approve spec" in body
 
 
@@ -188,7 +188,7 @@ def test_status_reports_everything(root):
     _, body, low = load(root, "status")
     for needle in ("phase", "approv", "spec version", "pending"):
         assert needle in low, needle
-    assert "state.py" in body and "get" in body
+    assert "specforge state get" in body
 
 
 def test_status_is_read_only(root):
@@ -199,8 +199,8 @@ def test_status_is_read_only(root):
 def test_status_checks_the_claude_code_version_first(root):
     # M1: shown even in a project with no specforge state yet
     _, body, _ = load(root, "status")
-    assert "scripts/version_check.py" in body
-    assert body.index("version_check.py") < body.index("state.py")
+    assert "specforge version-check" in body
+    assert body.index("specforge version-check") < body.index("specforge state")
 
 
 # ---------- /specforge:approve ----------
@@ -214,7 +214,7 @@ def test_approve_takes_spec_or_plan(root):
     meta, body, _ = load(root, "approve")
     assert "spec|plan" in meta["argument-hint"]
     assert "$ARGUMENTS" in body
-    assert "state.py" in body and "approve" in body
+    assert "specforge state" in body and "approve" in body
 
 
 def test_approve_does_not_record_the_approval_itself(root):
@@ -230,7 +230,7 @@ def test_approve_says_when_the_approval_was_not_recorded(root):
     assert "not recorded" in low
     # if the model loaded the command itself, the user has to type it
     assert "type" in low and "yourself" in low
-    assert "state.py\" get" in load(root, "approve")[1]
+    assert "specforge state get" in load(root, "approve")[1]
 
 
 def test_approve_validates_target_and_prerequisites(root):
@@ -251,9 +251,9 @@ def test_build_explains_per_task_test_scope(root):
 
 def test_build_records_red_with_the_red_script(root):
     _, body, low = load(root, "build")
-    assert "${CLAUDE_PLUGIN_ROOT}/scripts/red.py" in body
+    assert "specforge red" in body
     red, green = body.index("**RED**"), body.index("**GREEN**")
-    assert red < body.index("red.py") < green  # part of the RED step
+    assert red < body.index("specforge red") < green  # part of the RED step
     assert "already pass" in low  # what to do when red.py refuses
 
 
@@ -307,18 +307,18 @@ def test_spec_writer_carries_source_constraints_into_the_spec(root):
 
 def test_spec_measures_the_spec_before_the_review(root):
     _, body, _ = load(root, "spec")
-    script = "${CLAUDE_PLUGIN_ROOT}/scripts/spec_size.py"
+    script = "specforge spec-size"
     assert script in body
     review = body.index("specforge:spec-reviewer")
     assert body.index("templates/spec.md") < body.index(script) < review
     step = next(l for l in body.splitlines() if "specforge:spec-reviewer" in l)
-    assert "spec_size.py" in step  # the reviewer gets the line
+    assert "specforge spec-size" in step  # the reviewer gets the line
 
 
 def test_spec_shows_the_size_line_in_its_summary(root):
     _, body, _ = load(root, "spec")
     stop = next(l for l in body.splitlines() if l.lstrip().startswith("7. **Stop.**"))
-    assert "spec_size.py" in stop and "suggestion" in stop.lower()
+    assert "specforge spec-size" in stop and "suggestion" in stop.lower()
 
 
 def test_spec_writer_does_not_cut_acs_to_meet_the_budget(root):
@@ -340,7 +340,7 @@ def test_spec_copies_from_files_with_the_import_script(root):
     # M9-AC1: a script copies them, not the model
     _, body, _ = load(root, "spec")
     step = next(l for l in body.splitlines() if "verbatim" in l and ".spec/source.md" in l)
-    assert "${CLAUDE_PLUGIN_ROOT}/scripts/import_source.py" in step
+    assert "specforge import" in step
     assert "source_fidelity" in step
 
 
@@ -361,7 +361,7 @@ def test_spec_fills_the_root_claude_md_constraints(root):
 
 def test_plan_checks_the_traceability_table_before_stopping(root):
     _, body, _ = load(root, "plan")
-    script = "${CLAUDE_PLUGIN_ROOT}/scripts/trace_check.py\" --plan"
+    script = "specforge trace --plan"
     assert script in body
     stop = body.index("**Stop.**")
     assert body.index(script) < stop
@@ -371,7 +371,7 @@ def test_plan_checks_the_traceability_table_before_stopping(root):
 
 def test_review_puts_the_rollup_in_review_md(root):
     _, body, _ = load(root, "review")
-    script = "${CLAUDE_PLUGIN_ROOT}/scripts/trace_check.py\" --rollup"
+    script = "specforge trace --rollup"
     assert script in body
     step = next(l for l in body.splitlines() if "--rollup" in l)
     assert "Source Checks" in step
@@ -415,6 +415,15 @@ def test_spec_writer_numbers_edge_cases_one_claim_each(root):
 
 def test_review_checks_the_edge_case_table_before_committing(root):
     _, body, _ = load(root, "review")
-    script = "${CLAUDE_PLUGIN_ROOT}/scripts/trace_check.py\" --edges"
+    script = "specforge trace --edges"
     assert script in body
     assert body.index(script) < body.index("Commit `.spec/review.md`")
+
+
+# ---------- one entry point (M13) ----------
+
+@pytest.mark.parametrize("name", COMMANDS)
+def test_commands_call_scripts_only_through_the_specforge_entry_point(root, name):
+    _, body, _ = load(root, name)
+    assert "CLAUDE_PLUGIN_ROOT}/scripts/" not in body
+    assert "python3" not in body

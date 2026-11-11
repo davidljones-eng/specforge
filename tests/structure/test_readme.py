@@ -170,3 +170,13 @@ def test_readme_documents_the_holdout_command(readme):
 def test_readme_mentions_edge_case_coverage(readme):
     # M12
     assert "--edges" in readme and "EC-1" in readme
+
+
+def test_readme_has_a_headless_section_with_exact_allow_rules(readme):
+    # M13-AC3
+    assert "headless / ci" in headings(readme)
+    text = section(readme, "headless / ci")
+    assert "--allowedTools" in text and "Bash(specforge:*)" in text and "dontAsk" in text
+    for phase in ("spec", "approve", "plan", "build", "review"):
+        assert f"/specforge:{phase}" in text
+    assert "Bash(python3:*)" not in readme
