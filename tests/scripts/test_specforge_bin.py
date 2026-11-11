@@ -61,3 +61,15 @@ def test_usage(proj, args):
     result = sf(proj, *args)
     assert "specforge state" in result.stdout + result.stderr
     assert result.returncode == (0 if args == ["--help"] else 2)
+
+
+def test_config_prints_the_settings_with_defaults(proj):
+    # M15-AC1
+    got = sf(proj, "config")
+    assert got.returncode == 0
+    assert json.loads(got.stdout)["test_dirs"] == ["tests"]
+
+
+def test_usage_lists_config_and_trace_tests(proj):
+    out = sf(proj, "--help").stdout
+    assert "specforge config" in out and "--tests" in out

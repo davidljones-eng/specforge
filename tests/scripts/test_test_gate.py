@@ -1328,3 +1328,37 @@ def test_reapproving_turns_the_test_run_back_on(withdrawn, monkeypatch):
     _git(withdrawn, "add", "src")
     assert gate(monkeypatch, withdrawn, "git commit -m 'feat: change a'") == 2
     assert (withdrawn / "ran.marker").exists()  # blocked by the failing tests this time
+
+
+# ---------- M15: tests outside the test folders ----------
+
+def test_tests_for_finds_an_acs_tests_inside_and_outside_the_test_folders(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "a.test.js").write_text('test("AC-1: x", () => {});\n')
+    (tmp_path / "test").mkdir()
+    (tmp_path / "test" / "b.test.js").write_text('test("AC-1: y", () => {});\ntest("AC-2: z", () => {});\n')
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "c.test.js").write_text('test("AC-2: w", () => {});\n')
+    assert test_gate.tests_for(tmp_path, ["tests"], "AC-1") == (["tests/a.test.js"], ["test/b.test.js"])
+    assert test_gate.tests_for(tmp_path, ["tests"], "AC-2") == ([], ["src/c.test.js", "test/b.test.js"])
+
+
+def test_tests_for_never_looks_in_the_spec_folder(tmp_path):
+    # .spec/holdout/ holds the hidden tests; a message must not point a build session at them
+    (tmp_path / ".spec" / "holdout").mkdir(parents=True)
+    (tmp_path / ".spec" / "holdout" / "h.test.js").write_text('test("AC-1: hidden", () => {});\n')
+    assert test_gate.tests_for(tmp_path, ["tests"], "AC-1") == ([], [])
+
+
+def test_a_missing_test_message_names_the_folders_and_where_it_was_found(proj, monkeypatch, capsys):
+    write_plan(proj)
+    write_tests(proj, "AC-18", "AC-23", "AC-4")
+    (proj / "test").mkdir()
+    (proj / "test" / "x.test.js").write_text('test("AC-24: x", () => {});\n')
+    (proj / ".spec" / "config.json").write_text(json.dumps({
+        "test_command": "exit 0", "test_filter": "exit 0 #{ac_regex}",
+    }))
+    assert run_gate(monkeypatch, proj, commit_event(proj)) == 2
+    err = capsys.readouterr().err
+    assert "AC-24" in err and "tests/" in err and "test/x.test.js" in err
+    assert "test_dirs" in err and ".spec/config.json" in err
