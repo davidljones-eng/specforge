@@ -232,6 +232,26 @@ Claude: review.md written: AC-1..AC-6 all pass, no gaps.
         PR opened: https://github.com/you/todo-api/pull/1 (not merged).
 ```
 
+## Headless / CI
+
+Each phase can run headless with `claude -p "/specforge:<phase>"`. The commands call the plugin's scripts through one entry point, `specforge`, which Claude Code puts on the PATH from the plugin's `bin/` folder. So a single exact rule, `Bash(specforge:*)`, allows them, with no general shell access. `specforge` has no way to approve or unapprove; those stay with the person who runs `/specforge:approve`.
+
+Run each phase with `--permission-mode dontAsk`, so anything not listed is refused instead of prompted for, and with these tools (Node example; for pytest use `"Bash(pytest:*)"` or `"Bash(.venv/bin/pytest:*)"` in place of `"Bash(node --test:*)"`):
+
+```
+BASE='Read Write Edit Glob Grep Agent Skill Bash(specforge:*)'
+GIT='Bash(git checkout:*) Bash(git switch:*) Bash(git add:*) Bash(git commit:*) Bash(git status:*) Bash(git log:*) Bash(git diff:*) Bash(git branch:*) Bash(git rev-parse:*)'
+
+claude -p "/specforge:spec <description>" --permission-mode dontAsk --allowedTools $BASE
+claude -p "/specforge:approve spec"       --permission-mode dontAsk --allowedTools 'Read' 'Bash(specforge:*)'
+claude -p "/specforge:plan"               --permission-mode dontAsk --allowedTools $BASE 'Bash(node --test:*)' 'Bash(mkdir:*)'
+claude -p "/specforge:approve plan"       --permission-mode dontAsk --allowedTools 'Read' 'Bash(specforge:*)'
+claude -p "/specforge:build --mode auto"  --permission-mode dontAsk --allowedTools $BASE $GIT 'Bash(node --test:*)'
+claude -p "/specforge:review"             --permission-mode dontAsk --allowedTools $BASE $GIT 'Bash(node --test:*)' 'Bash(git push:*)' 'Bash(gh pr create:*)'
+```
+
+`claude -p --output-format json` lists any refused call under `permission_denials`. Whoever runs `claude -p "/specforge:approve …"` is approving, so keep those two lines for a person, or for a pipeline step a person has signed off. If the spec has hidden checks (M11), start each phase in a new session, as `claude -p` does by default, and don't resume the plan session for the build.
+
 ## Troubleshooting
 
 - **The `/specforge:` commands do not appear.** Run `/reload-plugins`, then open `/plugin` and check the Errors tab for a load error. From a shell, `claude plugin list` should show the plugin as enabled, and `claude plugin validate /absolute/path/to/specforge` should pass.
@@ -272,6 +292,7 @@ commands/         spec, plan, build, review, status, approve, unapprove
 agents/           spec-reviewer, test-writer, code-reviewer, holdout-writer
 skills/           spec-writing (SKILL.md and templates)
 hooks/hooks.json  gate wiring
+bin/specforge     entry point the commands call (on the PATH); runs scripts/
 scripts/          state.py, config.py, gate_check.py, approve_hook.py, test_gate.py, red.py, spec_size.py, import_source.py, trace_check.py, holdout.py
 tests/            structure/ and scripts/
 ```

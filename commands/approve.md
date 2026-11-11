@@ -12,7 +12,7 @@ This command records a human decision. The plugin's hook recorded it, or refused
 
 ## Steps
 
-1. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state.py" get`. If there is no state or it is corrupt, say so.
+1. Run `specforge state get`. If there is no state or it is corrupt, say so.
 
 2. **spec**: if `spec_approved` is `true`, confirm: spec version, number of acceptance criteria in `.spec/spec.md`. Next: run `/specforge:plan`.
 

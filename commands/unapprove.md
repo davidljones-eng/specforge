@@ -12,7 +12,7 @@ This command records a human decision. The plugin's hook withdrew the approval, 
 
 ## Steps
 
-1. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state.py" get`. If there is no state or it is corrupt, say so.
+1. Run `specforge state get`. If there is no state or it is corrupt, say so.
 
 2. **plan**: if `plan_approved` is `false`, confirm that the plan approval is withdrawn, the spec is still approved, and the phase is back to `plan`. Code edits and commits that change code are blocked until the user runs `/specforge:approve plan` again.
 
