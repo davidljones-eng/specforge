@@ -13,6 +13,7 @@ Use the templates in `${CLAUDE_SKILL_DIR}/templates/` for every document in a sp
 | Spec | `spec.md` | `.spec/spec.md` |
 | Plan | `plan.md` | `.spec/plan.md` |
 | Review | `review.md` | `.spec/review.md` |
+| Hidden ACs (only if the source tags checks `[hidden]`) | `holdout.md` | `.spec/holdout.md` |
 | Root project rules | `root-CLAUDE.md` | `CLAUDE.md` |
 | Folder rules | `folder-CLAUDE.md` | `<folder>/CLAUDE.md` (max 10 lines) |
 
@@ -43,6 +44,7 @@ When the source is a SPEC+ document (from `/specforge:spec --from <file>` or pas
 | Constraints, and E4 + escalation triggers | `spec.md` Scope or Out of Scope, and the root `CLAUDE.md` Constraints section, word for word |
 | E1 | Edge Cases, and ACs for the ones that matter |
 | E2 / E3 | Scope: the state machine and the error path |
+| C table, `[hidden]` checks | Hidden ACs in `.spec/holdout.md`, numbered `HAC-1`, `HAC-2`, … and tagged `[Cn]`; never in `spec.md` |
 | C table | At least one AC per check, each tagged `[Cn]`, for example `- AC-4 [C2]: ...`. A check the spec leaves out goes in Out of Scope with its C-ID and the reason. |
 | I | The `Version:` line, plus a Change log section |
 

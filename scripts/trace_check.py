@@ -97,6 +97,8 @@ def check_plan(project):
     for ac in listed:
         if ac not in expected:
             problems.append(f"{ac} is in the traceability table but not in spec.md.")
+    for hac in sorted(set(re.findall(r"\bHAC-\d+\b", plan)), key=lambda h: int(h[4:])):
+        problems.append(f"plan.md mentions {hac}, a hidden AC. Hidden ACs stay out of the plan, which the build reads.")
     if problems:
         return 1, "The traceability table doesn't match .spec/spec.md:\n" + "\n".join(f"- {p}" for p in problems)
     return 0, f"The traceability table matches .spec/spec.md: {len(expected)} ACs, each with its source tags."

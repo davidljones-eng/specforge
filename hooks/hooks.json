@@ -33,6 +33,18 @@
         ]
       },
       {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/gate_check.py"],
+            "timeout": 10,
+            "onFailure": "block"
+          }
+        ]
+      },
+      {
         "matcher": "Skill",
         "hooks": [
           {

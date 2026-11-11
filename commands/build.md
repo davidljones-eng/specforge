@@ -50,6 +50,7 @@ The mode decides when you stop and ask the user to approve before continuing:
 - Never edit or delete a test just to make it pass. If a test looks wrong, explain why and ask the user.
 - If the same test fails 3 times, stop. Report what you tried and what you think is wrong. Do not keep guessing.
 - If a hook blocks an edit or commit, read the reason and follow it. Do not work around a hook.
+- If a hook says this session has seen the hidden checks, stop and tell the user to start a fresh session (`/clear`, or a new window) and run `/specforge:build` there. In a build session, `.spec/holdout.md`, `.spec/holdout/`, `.spec/source.md` and `.spec/requirement.md` are off limits while hidden ACs exist; work from `.spec/spec.md` and `.spec/plan.md`.
 - Never edit .spec/state.json, and do not try to approve anything yourself.
 - If the spec turns out to be wrong or incomplete, stop and tell the user. Changing `.spec/spec.md` resets both approvals, so the user must approve again.
 

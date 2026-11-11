@@ -25,6 +25,7 @@ import tempfile
 from pathlib import Path
 
 import config
+import holdout
 import state
 
 TEST_TIMEOUT = 300  # seconds
@@ -541,6 +542,37 @@ def _tail(output: str) -> str:
     return "\n".join(lines)[-_TAIL_CHARS:]
 
 
+def _code_in_commit(project, command):
+    """(code paths the commit changes, None) or ([], reason) if that can't be told.
+    Outside a git repository there is nothing to commit, so ([], None)."""
+    if not is_git_repo(project):
+        return [], None
+    try:
+        cfg = config.load(project)
+    except config.ConfigError as e:
+        return [], f"specforge: commit blocked. .spec/config.json is invalid ({e})."
+    try:
+        temp_root, _, changed = build_commit_tree(project, command, cfg["test_env_links"])
+    except CommitTreeError as e:
+        return [], f"specforge: commit blocked. {e}"
+    shutil.rmtree(temp_root, ignore_errors=True)
+    return [p for p in changed if touches_code([p], cfg)], None
+
+
+def aware_code_reason(project, command, session_id):
+    """M11: a session that has seen the hidden checks can't commit code."""
+    if not (holdout.exists(project) and holdout.session_aware(project, session_id)):
+        return None
+    code, problem = _code_in_commit(project, command)
+    if problem or not code:
+        return problem
+    return (
+        f"specforge: commit blocked. This session has seen the hidden checks (it ran "
+        f"/specforge:spec, /plan or /review), so it can't commit code ({', '.join(code[:5])}) "
+        "while .spec/holdout.md has hidden ACs. Start a fresh session (/clear) and build there."
+    )
+
+
 def unapproved_code_reason(project, command, current):
     """With an approval missing, block a commit that changes code (M6-AC4).
 
@@ -549,20 +581,9 @@ def unapproved_code_reason(project, command, current):
     withdrawn, or reset by a spec edit, mid-build. The `test:` prefix doesn't
     help here: the question is the approval, not the tests.
     """
-    if not is_git_repo(project):
-        return None
-    try:
-        cfg = config.load(project)
-    except config.ConfigError as e:
-        return f"specforge: commit blocked. .spec/config.json is invalid ({e})."
-    try:
-        temp_root, _, changed = build_commit_tree(project, command, cfg["test_env_links"])
-    except CommitTreeError as e:
-        return f"specforge: commit blocked. {e}"
-    shutil.rmtree(temp_root, ignore_errors=True)
-    code = [p for p in changed if touches_code([p], cfg)]
-    if not code:
-        return None
+    code, problem = _code_in_commit(project, command)
+    if problem or not code:
+        return problem
     missing = "plan" if current["spec_approved"] else "spec"
     listed = ", ".join(code[:5]) + (", …" if len(code) > 5 else "")
     return (
@@ -595,6 +616,9 @@ def evaluate(event, project_dir):
         return f"specforge: commit blocked. .spec/state.json is corrupt ({e})."
     if not (current["spec_approved"] and current["plan_approved"]):
         return unapproved_code_reason(project, command, current)
+    reason = aware_code_reason(project, command, event.get("session_id"))
+    if reason:
+        return reason
     if test_only:
         return None
 

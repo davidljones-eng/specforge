@@ -19,6 +19,8 @@ import state
 APPROVE = "/specforge:approve"
 UNAPPROVE = "/specforge:unapprove"
 COMMANDS = (APPROVE, UNAPPROVE)
+# Prompts that show the session the hidden checks (M11), so it may not build.
+AWARE_COMMANDS = ("/specforge:spec", "/specforge:plan", "/specforge:review")
 _AC_ID = re.compile(r"\bAC-\d+\b")
 
 
@@ -37,6 +39,31 @@ def parse(prompt):
                 continue  # a different command, such as /specforge:approver
             return command, rest.split()
     return None
+
+
+def runs_aware_command(prompt):
+    """The command if `prompt` runs one of AWARE_COMMANDS, else None."""
+    if not isinstance(prompt, str):
+        return None
+    for command in AWARE_COMMANDS:
+        if prompt.startswith(command):
+            rest = prompt[len(command):]
+            if not rest or rest[0].isspace():
+                return command
+    return None
+
+
+def record_session(project_dir, command, session_id):
+    """Mark the session as having seen the hidden checks. The first
+    /specforge:spec in a project creates the state for it."""
+    project = Path(project_dir)
+    try:
+        state.read(project)
+    except state.StateMissingError:
+        if command != "/specforge:spec":
+            return  # the command will refuse: there is no workflow yet
+        state.create(project)
+    state.record_session(project, session_id)
 
 
 def _block(reason):
@@ -108,10 +135,24 @@ def main(stdin=None) -> int:
         event = json.loads(stdin.read())
     except ValueError:
         return 0  # nothing recorded; never block the user's prompt on bad input
-    if not isinstance(event, dict) or parse(event.get("prompt")) is None:
+    if not isinstance(event, dict):
+        return 0
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or event.get("cwd") or os.getcwd()
+
+    aware = runs_aware_command(event.get("prompt"))
+    if aware:
+        session_id = event.get("session_id")
+        if isinstance(session_id, str) and session_id:
+            try:
+                record_session(project_dir, aware, session_id)
+            except Exception as e:  # noqa: BLE001 - unrecorded, the session could build after seeing hidden checks
+                print(json.dumps({"decision": "block", "reason": (
+                    f"specforge: couldn't record that this session ran {aware} ({e}). "
+                    "Fix .spec/state.json, then run the command again.")}))
         return 0
 
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or event.get("cwd") or os.getcwd()
+    if parse(event.get("prompt")) is None:
+        return 0
     try:
         decision, message = evaluate(event["prompt"], project_dir)
     except Exception as e:  # noqa: BLE001 - an approval that can't be checked isn't recorded
