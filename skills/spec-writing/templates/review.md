@@ -7,6 +7,9 @@ Spec version: <n>
 |----|------|------|--------|
 | AC-1 | <file:line> | <test file::test name> | pass / fail / missing |
 
+## Source Checks
+<The output of `scripts/trace_check.py --rollup`, as is: one row per source check with its ACs and pass, fail, missing or out of scope.>
+
 ## Gaps Found
 - <Missing tests, uncovered edge cases, spec drift. Write "None" if there are none.>
 

@@ -13,7 +13,7 @@ Spec version: <n>
 - [ ] T2 (M1, AC-2): <...>
 
 ## Traceability
-| AC | Tasks | Test file |
-|----|-------|-----------|
-| AC-1 | T1 | <tests/...> |
-| AC-2 | T2 | <tests/...> |
+| AC | Source | Tasks | Test file |
+|----|--------|-------|-----------|
+| AC-1 | <the AC's tags as in spec.md, e.g. C1; — if none> | T1 | <tests/...> |
+| AC-2 | <...> | T2 | <tests/...> |
