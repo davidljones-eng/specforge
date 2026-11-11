@@ -7,6 +7,11 @@ AC-IDs on a temporary copy of HEAD, and only if those tests fail records the
 task and the commit in .spec/state.json. Until then the edit gate and the
 commit gate block the task's code. Exit 0 when RED is recorded or not needed,
 1 when it is refused, with the reason on stdout.
+
+`specforge red --all` is for the plan phase (M16): it runs every open task's
+tests on their own, on the files on disk, and records nothing. It passes only
+if each task's tests ran and failed and no test file failed to load, so each
+task can go RED -> GREEN on its own in the build.
 """
 import argparse
 import os
@@ -95,10 +100,16 @@ def run(project):
         if temp_root is not None:
             shutil.rmtree(temp_root, ignore_errors=True)
 
-    full = result.stdout + result.stderr
+    full = test_gate.strip_root(result.stdout + result.stderr, run_dir)
     output = test_gate._tail(full)
     if result.returncode == 127:
         return 1, f"specforge: no RED recorded. Test runner not found (exit 127): {command}\n{output}"
+    failures = test_gate.load_failures(full)
+    if failures:
+        # pytest exits 2 on a collection error, which isn't the tests failing
+        return 1, (
+            f"specforge: no RED recorded for {task_id}. {test_gate.load_failure_note(failures)}\n{output}"
+        )
     if test_gate.tests_ran(full) is False:
         return 1, (
             f"specforge: no RED recorded for {task_id}. The test filter ran no tests: "
@@ -121,13 +132,73 @@ def run(project):
     )
 
 
+def check_all(project):
+    """(0, summary) if every open task's tests run on their own, fail, and load;
+    else (1, problems). Runs on the working tree and records nothing (M16-AC2)."""
+    project = Path(project).resolve()
+    if not (project / ".spec").is_dir():
+        return 1, "specforge: no .spec/ folder here. Run /specforge:spec first."
+    try:
+        cfg = config.load(project)
+    except config.ConfigError as e:
+        return 1, f"specforge: .spec/config.json is invalid ({e})."
+    if not cfg["test_filter"]:
+        return 0, ('specforge: "test_filter" isn\'t set in .spec/config.json, so the build '
+                   "doesn't run tasks' tests on their own; nothing to check.")
+    tasks = [(tid, acs) for tid, done, acs in test_gate.plan_tasks(project) if not done and acs]
+    if not tasks:
+        return 0, "specforge: .spec/plan.md has no open task with AC-IDs; nothing to check."
+
+    problems, loads = [], {}  # loads: file -> (error, [task IDs])
+    for task_id, acs in tasks:
+        missing = [a for a in acs if not test_gate._has_test_for(project, cfg["test_dirs"], a)]
+        if missing:
+            problems.append(f"{task_id}: no test named after {', '.join(missing)} in "
+                            f"{test_gate.folder_list(cfg['test_dirs'])}.")
+            continue
+        command = test_gate.filter_command(cfg["test_filter"], acs)
+        try:
+            result = subprocess.run(command, shell=True, cwd=project, capture_output=True,
+                                    text=True, errors="replace", timeout=test_gate.TEST_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            problems.append(f"{task_id}: its tests timed out after {test_gate.TEST_TIMEOUT}s: {command}")
+            continue
+        full = test_gate.strip_root(result.stdout + result.stderr, project)
+        if result.returncode == 127:
+            return 1, f"specforge: test runner not found (exit 127): {command}\n{test_gate._tail(full)}"
+        failures = test_gate.load_failures(full)
+        if failures:
+            for f, e in failures:
+                loads.setdefault(f, (e, []))[1].append(task_id)
+        elif test_gate.tests_ran(full) is False:
+            problems.append(f"{task_id}: the test filter ran none of its tests ({', '.join(acs)}): {command}")
+        elif result.returncode == 0:
+            problems.append(f"{task_id}: its tests for {', '.join(acs)} already pass with no code "
+                            "written, so the build couldn't record RED. Make them fail while the "
+                            "feature is missing.")
+    names = ", ".join(tid for tid, _ in tasks)
+    problems = [f"{f} failed to load, so the tests in it didn't run for {', '.join(ids)}"
+                + (f": {e}" if e else ".") for f, (e, ids) in loads.items()] + problems
+    if problems:
+        fix = ("\nLoad the code under test inside each test (await import(...) in the test, or "
+               "the import inside the test function for pytest), so a missing module fails only "
+               "that test. " if loads else "\n")
+        return 1, ("specforge: not every task's tests can go RED -> GREEN on their own in the build:\n"
+                   + "\n".join(f"- {p}" for p in problems)
+                   + fix + "Then run `specforge red --all` again.")
+    return 0, (f"specforge: every task's tests run on their own and fail, and every test file "
+               f"loads: {names}. Nothing was recorded.")
+
+
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="red.py", description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(prog="specforge red", description=__doc__.splitlines()[0])
     parser.add_argument("--project-dir")
+    parser.add_argument("--all", action="store_true",
+                        help="check every open task's tests at plan time; record nothing")
     args = parser.parse_args(argv)
     project = args.project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     try:
-        code, message = run(project)
+        code, message = check_all(project) if args.all else run(project)
     except Exception as e:  # noqa: BLE001 - report, never record on an unexpected error
         code, message = 1, f"specforge: red failed ({e}); no RED recorded."
     print(message)

@@ -17,6 +17,7 @@ You are given the acceptance criteria from `.spec/spec.md` (each with an AC-ID s
 - Cover the edge cases listed in the spec with their own tests.
 - The tests must be failing, and must fail for the right reason: the feature is missing. They must not fail because of a syntax error, a broken import in the test itself, or a missing test dependency.
 - Assert observable behavior through the public interface the spec describes. Do not test private helpers.
+- Load the code under test inside each test, not at the top of the file: `const { slugify } = await import('../src/strtools.js')` inside the test for node:test, Jest and Vitest, and the import inside the test function for pytest. The build writes the code one task at a time, so until a later task's code exists, a file that imports it at the top can't load, and then none of its tests run, including the ones whose code is already written. Loaded inside each test, a missing module fails only that test.
 - Keep tests small, independent and deterministic. No sleeps, no network, no shared state between tests.
 - Put tests only under the `test_dirs` folders you're given, as laid out in the plan, and never next to the code (`src/a.test.js`). The hooks look for tests only there: a test anywhere else isn't seen, so the build can't record RED for its AC or commit the AC's code.
 - Never write production code, stubs or fixtures that make the tests pass.

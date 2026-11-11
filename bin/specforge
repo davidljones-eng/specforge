@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 USAGE = """usage: specforge <command> [args]
 
   specforge state get|init|set-phase <phase>|set-mode <mode>|bump
-  specforge red                        record RED for the current task
+  specforge red [--all]                record RED for the current task (--all: check every task, record nothing)
   specforge spec-size                  count ACs against the source and the budget
   specforge config                     print .spec/config.json with defaults filled in
   specforge trace --plan|--tests|--rollup|--edges
