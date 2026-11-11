@@ -121,9 +121,9 @@ If `.spec/spec.md` changes after approval, the spec version goes up and both app
 | Command | What it does |
 |---|---|
 | `/specforge:spec [--from <file> ...] <description>` | Asks up to 5 clarifying questions, saves your description verbatim to `source.md` (with `--from`, `scripts/import_source.py` copies the files there unchanged, such as a SPEC+ document and its SPEC Lite), writes `requirement.md`, `spec.md` and `CLAUDE.md`, runs `spec-reviewer` (which checks the spec against `source.md`), then stops. |
-| `/specforge:plan` | Refuses unless the spec is approved. Writes `plan.md`, folders with short `CLAUDE.md` files, and failing tests. Stops. |
+| `/specforge:plan` | Refuses unless the spec is approved. Writes `plan.md`, folders with short `CLAUDE.md` files, and failing tests. The traceability table carries each AC's source tags (C1, …), which `scripts/trace_check.py --plan` checks against the spec. Stops. |
 | `/specforge:build [--mode strict\|checkpoint\|auto]` | Refuses unless spec and plan are approved. Builds on a feature branch with red, green, refactor per task. |
-| `/specforge:review` | Fresh `code-reviewer`, writes `review.md`, opens a PR. Never merges. |
+| `/specforge:review` | Fresh `code-reviewer`, writes `review.md`, opens a PR. Never merges. `review.md` rolls each source check up from its ACs (pass, fail, missing or out of scope), computed by `scripts/trace_check.py --rollup`. |
 | `/specforge:status` | Read-only: phase, approvals, spec version, build mode, pending items. |
 | `/specforge:approve spec\|plan` | Records your approval. Only you can run it: the model is not allowed to invoke it. |
 
@@ -246,6 +246,6 @@ commands/         spec, plan, build, review, status, approve
 agents/           spec-reviewer, test-writer, code-reviewer
 skills/           spec-writing (SKILL.md and templates)
 hooks/hooks.json  gate wiring
-scripts/          state.py, config.py, gate_check.py, test_gate.py, spec_size.py, import_source.py
+scripts/          state.py, config.py, gate_check.py, test_gate.py, spec_size.py, import_source.py, trace_check.py
 tests/            structure/ and scripts/
 ```
