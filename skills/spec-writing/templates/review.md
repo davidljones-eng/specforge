@@ -7,6 +7,13 @@ Spec version: <n>
 |----|------|------|--------|
 | AC-1 | <file:line> | <test file::test name> | pass / fail / missing |
 
+## Holdout
+<Only if `.spec/holdout.md` lists hidden ACs. The holdout tests' results from `holdout_command`, one row per hidden AC. Otherwise write "No hidden ACs.">
+
+| HAC | Test | Status |
+|-----|------|--------|
+| HAC-1 | <.spec/holdout/file::test name> | pass / fail / missing |
+
 ## Source Checks
 <The output of `scripts/trace_check.py --rollup`, as is: one row per source check with its ACs and pass, fail, missing or out of scope.>
 
