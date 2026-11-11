@@ -9,7 +9,7 @@ Arguments from the user: $ARGUMENTS
 
 You are starting the **build** phase. Work from the project root.
 
-Read files with the Read tool, not `cat` or other shell commands, and use only the shell commands this file names (`specforge`, git, and `test_command` from `.spec/config.json` exactly as written there, not `npm test` or another way to run the tests). Run each shell command on its own, not chained with `;`, `&&` or a pipe and not followed by `echo`; the exit status is reported anyway. Headless runs allow exactly those commands, so anything else is refused.
+Read files with the Read tool, not `cat` or other shell commands, and use only the shell commands this file names (`specforge`, git, and `specforge test` to run the tests, which runs what the commit gate runs, not `npm test`, `node --test`, `pytest` or another way to run them). Run each shell command on its own, not chained with `;`, `&&` or a pipe and not followed by `echo`; the exit status is reported anyway. Headless runs allow exactly those commands, so anything else is refused.
 
 ## Gate: refuse unless spec and plan are both approved
 
@@ -40,9 +40,9 @@ The mode decides when you stop and ask the user to approve before continuing:
    Run `git status`. Changes an earlier session left uncommitted are unfinished work on the first unticked task: check them against that task, run the tests, and finish and commit them through the usual steps. Never discard them: no `git checkout -- <file>`, `git restore`, `git stash` or `git reset`. If they don't belong to that task, stop and ask the user.
 
 3. Work through the tasks in `.spec/plan.md` in order. For each task, follow red, green, refactor:
-   - **RED**: write the failing test for the task's AC-ID (or confirm the planned one exists), run it, and show that it fails for the right reason. Commit with a `test:` prefix. If `.spec/config.json` sets `test_filter`, then run `specforge red`. It runs the current task's tests as committed and records RED only if they fail; until then the hooks block the task's code. If it says the tests already pass, either the tests are too weak (write a stricter failing test, commit it with `test:`, and run it again) or the behavior is already there (tick the task with no code change and say so in your summary). Never weaken or skip a test to get past it.
-   - **GREEN**: write the minimum code to pass. Nothing extra. Run the **full** suite. Commit with a `feat:` prefix.
-   - **REFACTOR**: clean up with the tests still green. Run the full suite. Commit with a `refactor:` prefix, only if you changed something.
+   - **RED**: write the failing test for the task's AC-ID (or confirm the planned one exists), run it with `specforge test <AC-ID> ...` (the task's AC-IDs), and show that it fails for the right reason. Commit with a `test:` prefix. If `.spec/config.json` sets `test_filter`, then run `specforge red`. It runs the current task's tests as committed and records RED only if they fail; until then the hooks block the task's code. If it says the tests already pass, either the tests are too weak (write a stricter failing test, commit it with `test:`, and run it again) or the behavior is already there (tick the task with no code change and say so in your summary). Never weaken or skip a test to get past it.
+   - **GREEN**: write the minimum code to pass. Nothing extra. Run the **full** suite with `specforge test`. Commit with a `feat:` prefix.
+   - **REFACTOR**: clean up with the tests still green. Run the full suite with `specforge test`. Commit with a `refactor:` prefix, only if you changed something.
    - Tick the task off in `.spec/plan.md` only **after** its `feat:` (and `refactor:`) commits, and before starting the next task.
 
 4. Keep commits small, one concern each. A commit that is not a `test:` commit is blocked by a hook while tests fail. The hook tests exactly what is being committed, so stage every file the commit needs.

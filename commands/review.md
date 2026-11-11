@@ -6,7 +6,7 @@ description: Review the finished build with a fresh code-reviewer, write review.
 
 You are starting the **review** phase. Work from the project root.
 
-Read files with the Read tool, not `cat` or other shell commands, and use only the shell commands this file names (`specforge`, git, and `test_command` from `.spec/config.json` exactly as written there, not `npm test` or another way to run the tests). Run each shell command on its own, not chained with `;`, `&&` or a pipe and not followed by `echo`; the exit status is reported anyway. Headless runs allow exactly those commands, so anything else is refused.
+Read files with the Read tool, not `cat` or other shell commands, and use only the shell commands this file names (`specforge`, git, and `specforge test` to run the tests, which runs what the commit gate runs, not `npm test`, `node --test`, `pytest` or another way to run them). Run each shell command on its own, not chained with `;`, `&&` or a pipe and not followed by `echo`; the exit status is reported anyway. Headless runs allow exactly those commands, so anything else is refused.
 
 ## Gate
 
@@ -14,7 +14,7 @@ Run `specforge state get`. If there is no state, the state is corrupt, or `spec_
 
 ## Steps
 
-1. Run the **full test** suite (use `test_command` from `.spec/config.json` if set, otherwise the project's usual runner). Keep the complete output.
+1. Run the **full test** suite with `specforge test`. Keep the complete output.
 
 2. Run a fresh `specforge:code-reviewer` subagent. It must not inherit your build context. Give it `.spec/spec.md`, `.spec/holdout.md` if it exists, `.spec/plan.md`, and the diff of the feature branch against its base branch. It reports, per acceptance criterion, the implementing code, the covering test, and any problems.
 
