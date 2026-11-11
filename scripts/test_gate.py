@@ -46,7 +46,6 @@ _COMMIT_OPTS_WITH_VALUE = set("mFcCt")  # short options whose value is the next 
 
 _TASK_LINE = re.compile(r"^\s*[-*]\s*\[( |x|X)\]\s*(?P<id>T\d+)\b(?P<rest>.*)$")
 _OWN_ACS = re.compile(r"^\s*\(([^)]*)\)")
-RED_SCRIPT = Path(__file__).resolve().parent / "red.py"
 _AC_ID = re.compile(r"\bAC-\d+\b")
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__"}
 _MAX_SCAN_BYTES = 2_000_000
@@ -429,7 +428,7 @@ def red_block_reason(project, cfg, current):
     return (
         f"Task {task_id} has no failing test recorded. Commit a failing test for "
         f"{', '.join(acs)} with a `test:` prefix, then run "
-        f"`python3 \"{RED_SCRIPT}\"`, which records RED once those tests fail at HEAD."
+        "`specforge red`, which records RED once those tests fail at HEAD."
     )
 
 

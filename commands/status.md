@@ -8,9 +8,9 @@ This command is read-only. Do not modify any file, run any `set-*`, `approve`, `
 
 ## Steps
 
-1. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/version_check.py"`. If it prints a line, show that line first, word for word, whatever else happens below. It prints nothing when Claude Code is new enough.
+1. Run `specforge version-check`. If it prints a line, show that line first, word for word, whatever else happens below. It prints nothing when Claude Code is new enough.
 
-2. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/state.py" get`.
+2. Run `specforge state get`.
    - If it reports that no state exists, tell the user this project has no specforge workflow yet and to run `/specforge:spec <description>`. Stop.
    - If the state is corrupt, show the error and stop.
 

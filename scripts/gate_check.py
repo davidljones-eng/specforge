@@ -39,7 +39,7 @@ _HARMLESS_REDIRECT = re.compile(r"\d*>&\d*-?|\d*>\s*/dev/null")
 # M5, M6: approvals are recorded and withdrawn only by approve_hook.py, from a
 # prompt the user submits. Quotes and backslashes are dropped first, so
 # st"ate".py still matches.
-_STATE_MODULE = re.compile(r"state\.py|\bimport\s+state\b|\bfrom\s+state\s+import\b")
+_STATE_MODULE = re.compile(r"state\.py|\bimport\s+state\b|\bfrom\s+state\s+import\b|\bspecforge\s+state\b")
 _APPROVE = re.compile(r"\b(?:un)?approve\b")
 _APPROVE_COMMAND = re.compile(r"specforge:(?:un)?approve\b")
 _APPROVAL_SKILLS = ("specforge:approve", "specforge:unapprove")
