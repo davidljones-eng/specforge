@@ -300,3 +300,15 @@ def test_limitations_say_the_config_bash_guard_is_best_effort(readme):
     text = section(readme, "limitations")
     bullet = next(b for b in text.split("\n- ") if "config.json" in b)
     assert "best effort" in bullet.lower() and "fingerprint" in bullet
+
+
+# ---------- M19: red --all suggests a filter when it's missing ----------
+
+def test_readme_says_red_all_suggests_a_checked_filter(readme):
+    # M19-AC5
+    configuration = section(readme, "configuration")
+    bullet = configuration.split("- `test_filter`:")[1].split("\n- ")[0]
+    assert "specforge red --all" in bullet and "stop at" in bullet
+    assert "/specforge:approve plan" in bullet
+    gates = section(readme, "gates")
+    assert "suggest" in next(l for l in gates.splitlines() if "Red first" in l)

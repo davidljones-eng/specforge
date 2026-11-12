@@ -265,6 +265,20 @@ def test_red_refuses_while_the_config_is_changed(tmp_path):
     assert "red" not in state.read(proj)
 
 
+@pytest.mark.parametrize("changed", [
+    {"test_filter": "touch ran.marker; exit 1 #{ac_regex}"},
+    {"test_command": "touch ran.marker"},  # M19: red --all builds suggestions from it
+])
+def test_red_all_refuses_while_the_config_is_changed(tmp_path, changed):
+    # M19-AC4
+    proj = approved(tmp_path, cfg={"test_filter": "exit 1 {ac_regex}"})
+    (proj / ".spec" / "plan.md").write_text("- [ ] T1 (M1, AC-1): a\n- [ ] T2 (M1, AC-2): b\n")
+    write_config(proj, changed)
+    code, message = red.check_all(proj)
+    assert code == 1 and ".spec/config.json" in message
+    assert not (proj / "ran.marker").exists()
+
+
 class FakeRun:
     def __init__(self):
         self.calls = []
