@@ -600,3 +600,36 @@ def test_build_never_changes_config_json_and_asks_the_user(root):
     rules = body.split("## Rules", 1)[1] if "## Rules" in body else body
     bullet = next(l for l in rules.splitlines() if "config.json" in l and l.lstrip().startswith("-"))
     assert "never" in bullet.lower() and "ask the user" in bullet.lower()
+
+
+# ---------- M19: the plan says, before approval, that the build will stop ----------
+
+def test_plan_always_runs_red_all(root):
+    # M19-AC3: without test_filter it's what says the build will stop
+    _, body, _ = load(root, "plan")
+    step = _paragraph(body, "specforge red --all")
+    assert "If `.spec/config.json` sets `test_filter`, then run `specforge red --all`" not in step
+    assert "isn't set" in step and "suggest" in step.lower()
+
+
+def test_plan_summary_repeats_the_warning_before_approval(root):
+    # M19-AC3
+    _, body, _ = load(root, "plan")
+    stop = _paragraph(body, "**Stop.**")
+    low = stop.lower()
+    assert "will stop" in low and "suggested" in low
+    assert stop.index("will stop") < stop.index("/specforge:approve plan")
+    assert "before" in low and "approving the plan again" in low
+
+
+def test_plan_adds_the_filter_only_when_the_user_asks(root):
+    # M19-AC3: config.json is the user's, and fixed once the plan is approved (M17)
+    _, body, _ = load(root, "plan")
+    step = _paragraph(body, "specforge red --all").lower()
+    assert "only if the user asks" in step and "run `specforge red --all` again" in step
+
+
+def test_build_points_to_red_all_for_a_checked_filter(root):
+    # M19: the build-time stop gives the same checked suggestion
+    _, body, _ = load(root, "build")
+    assert "specforge red --all" in _paragraph(body, "**Per-task scope.**")
