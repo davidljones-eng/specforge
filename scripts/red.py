@@ -173,6 +173,11 @@ def _task_problems(project, template, tasks, test_dirs):
     return problems, bool(loads), None
 
 
+_LOAD_FIX = ("Load the code under test inside each test (await import(...) in the test, or the "
+             "import inside the test function for pytest), so a missing module fails only that "
+             "test. ")
+
+
 def check_all(project):
     """(0, summary) if every open task's tests run on their own, fail, and load;
     else (1, problems). Runs on the working tree and records nothing (M16-AC2).
@@ -191,7 +196,7 @@ def check_all(project):
     except config.ConfigError as e:
         return 1, f"specforge: .spec/config.json is invalid ({e})."
     if not cfg["test_filter"]:
-        return 0, filter_advice(project, cfg)
+        return filter_advice(project, cfg)
     tasks = [(tid, acs) for tid, done, acs in test_gate.plan_tasks(project) if not done and acs]
     if not tasks:
         return 0, "specforge: .spec/plan.md has no open task with AC-IDs; nothing to check."
@@ -201,9 +206,7 @@ def check_all(project):
         return 1, f"specforge: {fatal}"
     names = ", ".join(tid for tid, _ in tasks)
     if problems:
-        fix = ("\nLoad the code under test inside each test (await import(...) in the test, or "
-               "the import inside the test function for pytest), so a missing module fails only "
-               "that test. " if loads else "\n")
+        fix = "\n" + _LOAD_FIX if loads else "\n"
         return 1, ("specforge: not every task's tests can go RED -> GREEN on their own in the build:\n"
                    + "\n".join(f"- {p}" for p in problems)
                    + fix + "Then run `specforge red --all` again.")
@@ -282,10 +285,11 @@ def filter_candidates(project, cfg, which=shutil.which):
 
 
 def filter_advice(project, cfg):
-    """What red --all says when test_filter isn't set (M19-AC1, AC2)."""
+    """(code, message): what red --all says when test_filter isn't set (M19-AC1, AC2).
+    1 only when a test file failed to load, which the plan phase can still fix."""
     stop = build_stop(project)
     if stop is None:
-        return ('specforge: "test_filter" isn\'t set in .spec/config.json, so the commit gate runs '
+        return 0, ('specforge: "test_filter" isn\'t set in .spec/config.json, so the commit gate runs '
                 "the full suite on every commit. The first open task covers every planned AC, "
                 "so that's enough; nothing to check.")
     first, later = stop
@@ -299,16 +303,20 @@ def filter_advice(project, cfg):
              ".spec/config.json means approving the plan again.")
     candidates, problem = filter_candidates(project, cfg)
     tasks = [(tid, acs) for tid, done, acs in test_gate.plan_tasks(project) if not done and acs]
-    tried = []
+    tried, any_loads = [], False
     for candidate in candidates:
-        problems, _, fatal = _task_problems(project, candidate, tasks, cfg["test_dirs"])
+        problems, loads, fatal = _task_problems(project, candidate, tasks, cfg["test_dirs"])
+        any_loads = any_loads or loads
         if not problems and not fatal:
-            return (f"{warning}\nSuggested, and checked: with it, every task's tests ran on their "
+            return 0, (f"{warning}\nSuggested, and checked: with it, every task's tests ran on their "
                     "own and failed, and every test file loaded:\n"
                     f'  "test_filter": {json.dumps(candidate)}\n{after}')
         tried.append(f'- "{candidate}": {(fatal or problems[0]).splitlines()[0]}')
     why = problem or "none passed the check. Tried:\n" + "\n".join(tried)
-    return (f"{warning}\nNo filter to suggest: {why}\nSet \"test_filter\" yourself (see the "
+    if any_loads:
+        return 1, (f"{warning}\nNo filter to suggest: {why}\n{_LOAD_FIX}No filter can work until "
+                   "every test file loads. Then run `specforge red --all` again.")
+    return 0, (f"{warning}\nNo filter to suggest: {why}\nSet \"test_filter\" yourself (see the "
             "README's Configuration section), then run `specforge red --all` to check it. "
             f"{after}")
 
