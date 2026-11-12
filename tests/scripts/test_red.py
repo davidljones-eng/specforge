@@ -443,11 +443,11 @@ def test_red_all_suggests_only_a_filter_that_passes_the_check(tmp_path):
     # M19-AC2: a top-level import can't load before the code exists, so no filter passes
     proj = unfiltered(tmp_path, LAYOUTS["one file, top-level import"])
     code, message = red.check_all(proj)
-    assert code == 0, message
+    assert code == 1, message  # the tests are at fault, and the plan phase can fix them (M16)
     assert "the build will stop at T1" in message
     assert '"test_filter":' not in message
     assert "Tried" in message and "--test-name-pattern {ac_regex} tests/*.test.js" in message
-    assert "failed to load" in message
+    assert "failed to load" in message and "inside each test" in message
 
 
 def test_red_all_suggests_a_pytest_filter_from_test_command(tmp_path):

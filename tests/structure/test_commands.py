@@ -641,3 +641,10 @@ def test_build_points_to_red_all_for_a_checked_filter(root):
     # M19: the build-time stop gives the same checked suggestion
     _, body, _ = load(root, "build")
     assert "specforge red --all" in _paragraph(body, "**Per-task scope.**")
+
+
+def test_plan_fixes_a_test_file_that_fails_to_load_without_a_filter_too(root):
+    # M19: red --all fails then, since no filter can work until the tests load
+    _, body, _ = load(root, "plan")
+    step = _paragraph(body, "If `test_filter` isn't set, `specforge red --all`")
+    assert "failed to load" in step and "inside each test" in step
