@@ -22,3 +22,12 @@ def test_license_is_the_mit_text(root):
 
 def test_license_names_the_upstream_copyright_holders(root):
     assert HOLDERS in _license(root).splitlines()
+
+
+def test_notice_names_the_upstream_repo_and_commit(root):
+    path = root / "NOTICE"
+    assert path.is_file(), "missing NOTICE at the plugin root"
+    text = path.read_text()
+    assert "https://github.com/cskumara/specforge" in text
+    assert "c2f7313" in text
+    assert "MIT" in text and "LICENSE" in text
