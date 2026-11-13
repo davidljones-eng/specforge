@@ -1,0 +1,12 @@
+SpecForge (fork)
+
+This is a fork of SpecForge by Kumaran C S and Gunanithi CS:
+https://github.com/cskumara/specforge
+
+It is based on upstream commit c2f7313 ("Update specforge.md", 2026-10-10).
+The changes made since then are listed in the git history.
+
+Upstream's .claude-plugin/plugin.json declares the MIT license, but upstream
+has no LICENSE file. The LICENSE here is the standard MIT text with
+upstream's two authors as the copyright holders, until upstream confirms
+the holder line it wants.
